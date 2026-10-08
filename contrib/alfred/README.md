@@ -142,19 +142,28 @@ desiste e diz o motivo, em vez de ficar travado.
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
-### Formas de falar
+### Conversar por voz
 
-| Ação                | Como                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------- |
-| Apertar para falar  | Clique em 🎙 (ou segure **Espaço**), fale; ele envia quando você para de falar        |
-| Mãos livres         | Ligue **Sempre ouvindo** e diga "Alfred, que horas são?" (ou só "Alfred" e a pergunta) |
-| Conversa contínua   | **Modo conversa** (ligado): depois de responder, ele já escuta a sua próxima frase     |
-| Interromper         | **Esc**, ou clique no 🎙 e fale por cima                                              |
-| Digitar             | Campo de texto + Enviar                                                               |
-| Silenciar respostas | Desmarque **Voz**                                                                     |
+Use o **Edge** ou o **Chrome** (o `iniciar-alfred.cmd` já abre no Edge). Brave, Opera e Firefox
+não fazem reconhecimento de voz.
 
-Um bipe ascendente avisa que o microfone abriu; um descendente, que a frase foi enviada. Enquanto o
-Alfred fala, o microfone fica fechado para ele não ouvir a própria voz.
+| Ação                  | Como                                                                                         |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| **Conversa por voz**  | Clique no 🎙 uma vez e fale. Ele responde e volta a ouvir sozinho, sem digitar nada          |
+| Encerrar a conversa   | Diga "tchau", "pode parar" ou "obrigado, Alfred", ou clique no 🎙 de novo                    |
+| Chamar pelo nome      | Ligue **Chamar por "Alfred"** e diga "Alfred, que horas são?". A conversa continua por voz   |
+| Uma frase só          | Segure **Espaço**, fale e solte                                                              |
+| Interromper a fala    | **Esc**                                                                                      |
+| Digitar               | Campo de texto + Enviar (também funciona no meio da conversa por voz)                        |
+
+Com a conversa ligada, o 🎙 fica aceso e pulsa quando é a sua vez. Um bipe avisa quando ele volta a
+ouvir depois de responder. Enquanto o Alfred fala, o microfone fica fechado para ele não ouvir a
+própria voz. Depois de cerca de 1 minuto em silêncio, a conversa pausa sozinha. Se o microfone
+estiver bloqueado, sem permissão ou sem internet para o reconhecimento, a tela diz qual é o
+problema e o que fazer.
+
+No **terminal**, o microfone precisa do `sox` e de `OPENAI_API_KEY` (para transcrever). Sem chave,
+converse por voz pelo site.
 
 ### A voz do Alfred
 

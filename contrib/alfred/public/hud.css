@@ -424,6 +424,11 @@ summary:focus-visible {
     0 0 0 3px rgba(245, 196, 0, 0.08),
     0 0 14px rgba(245, 196, 0, 0.16) inset;
 }
+/* conversa por voz ligada: o anel fica aceso a conversa inteira; pulsa quando está ouvindo */
+#mic.session {
+  background: rgba(245, 196, 0, 0.14);
+  border-color: var(--accent);
+}
 #mic.listening,
 #mic.on {
   border-color: var(--accent);
@@ -499,7 +504,20 @@ summary:focus-visible {
     display: none;
   }
 }
+#mic.listening {
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  50% {
+    box-shadow:
+      0 0 0 8px rgba(245, 196, 0, 0.08),
+      0 0 28px rgba(245, 196, 0, 0.5);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  #mic.listening {
+    animation: none;
+  }
   .entry {
     animation: none;
   }

@@ -35,11 +35,8 @@
             <span class="chip">Voz <b id="chipVoice">—</b></span>
           </div>
           <div class="chips">
-            <label class="chip" for="wake" title="Fica ouvindo e responde quando você diz “Alfred”">
-              <input type="checkbox" id="wake" /> Sempre ouvindo
-            </label>
-            <label class="chip" for="followup" title="Depois de responder, já escuta a sua próxima frase">
-              <input type="checkbox" id="followup" checked /> Modo conversa
+            <label class="chip" for="wake" title="Fica esperando você dizer “Alfred” para começar a conversar">
+              <input type="checkbox" id="wake" /> Chamar por “Alfred”
             </label>
             <label class="chip" for="speak"><input type="checkbox" id="speak" checked /> Voz</label>
           </div>
@@ -88,13 +85,13 @@
 
       <footer class="hud-bar">
         <form id="form">
-          <button id="mic" type="button" title="Falar (ou segure Espaço)" aria-label="Falar">🎙</button>
+          <button id="mic" type="button" title="Conversa por voz: clique para começar e para encerrar" aria-label="Conversa por voz" aria-pressed="false">🎙</button>
           <input id="text" type="text" placeholder="Fale ou digite um comando…" autocomplete="off" />
           <button id="send" type="submit">Enviar</button>
         </form>
         <div class="hud-status">
           <span id="status" role="status"></span>
-          <span>ESPAÇO falar · ESC interromper · “ALFRED, …” com Sempre ouvindo</span>
+          <span>🎙 conversa por voz · diga “tchau” para encerrar · ESC interrompe</span>
         </div>
       </footer>
     </div>
@@ -105,6 +102,7 @@
         VOICE_TEST_LINE,
         createEarcons,
         createSpeaker,
+        isStopPhrase,
         matchWakeWord,
       } from "./voice.mjs";
       import { STATE_LABELS, createOrb, startClock } from "./hud.mjs";
@@ -141,8 +139,7 @@
       let busy = false;
       let ttsAvailable = false;
       let tts = null; // { provider, voice, voices } from /api/health
-      let lastViaVoice = false;
-      for (const id of ["wake", "followup", "speak"]) {
+      for (const id of ["wake", "speak"]) {
         $(id).checked = store.get("toggle:" + id, $(id).checked);
       }
 
@@ -157,7 +154,7 @@
       function settle() {
         if (busy) return setPhase("thinking");
         if (speaker.speaking) return setPhase("speaking");
-        if (listening === "command") return setPhase("listening");
+        if (listening === "command") return setPhase("listening", voiceSession ? "Ouvindo — pode falar" : "Ouvindo");
         if (listening === "wake") return setPhase("idle", "Aguardando “Alfred”");
         setPhase("idle");
       }
@@ -295,10 +292,10 @@
         text = text.trim();
         if (!text || busy) return;
         busy = true;
-        lastViaVoice = viaVoice;
+        cueNext = viaVoice;
         stopListening();
         speaker.cancel();
-        setStatus("");
+        setStatus(voiceSession ? "Conversa por voz ligada · diga “tchau” ou clique no 🎙 para encerrar" : "");
         settle();
         const chunker = speaker.chunker();
         const say = (pieces) => {
@@ -355,7 +352,6 @@
           entry.closest(".entry").remove();
           addEntry("note", err.message);
           $("caption").textContent = err.message;
-          lastViaVoice = false;
         } finally {
           busy = false;
           settle();
@@ -364,18 +360,65 @@
       }
 
       // ---------- Microfone ----------
-      // Estados: parado → "command" (uma frase) ou "wake" (espera “Alfred”).
-      // Enquanto Alfred fala, o microfone fica fechado para ele não ouvir a própria voz.
+      // 🎙 liga a "conversa por voz": ouve uma frase, responde, volta a ouvir sozinho, até você
+      // clicar de novo, dizer "tchau" ou ficar ~1 minuto em silêncio. Enquanto Alfred fala, o
+      // microfone fica fechado para ele não ouvir a própria voz. "Chamar por Alfred" espera o nome.
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const MIC_ERRORS = {
+        "not-allowed":
+          "O navegador bloqueou o microfone. Clique no cadeado ao lado do endereço → Microfone → Permitir, e clique no 🎙 de novo.",
+        "service-not-allowed":
+          "Este navegador não liberou o reconhecimento de voz. Abra o Alfred no Edge ou no Chrome.",
+        "audio-capture":
+          "Nenhum microfone encontrado. Confira se ele está conectado e liberado em Configurações do Windows → Privacidade → Microfone.",
+        network:
+          "O reconhecimento de voz do navegador não conseguiu conectar. Use o Edge ou o Chrome (Brave e Opera não funcionam) e confira a internet.",
+        "language-not-supported": "Este navegador não reconhece português. Abra o Alfred no Edge ou no Chrome.",
+      };
+      const MAX_SILENT_ROUNDS = 8; // ~1 minuto: o navegador encerra cada escuta após ~5–8 s de silêncio
       let rec = null;
       let listening = null; // "command" | "wake" | null
       let scheduled = null;
       let quickEnds = 0;
+      let voiceSession = false;
+      let silentRounds = 0;
+      let cueNext = false; // bipe só quando é a vez do usuário falar de novo, não a cada reinício
 
       if (!Recognition) {
-        $("mic").disabled = true;
-        $("mic").title = "Este navegador não reconhece voz — use Chrome ou Edge";
         $("wake").disabled = true;
+        setStatus("Para conversar por voz, abra o Alfred no Edge ou no Chrome — este navegador não tem reconhecimento de voz.", true);
+      } else if (navigator.brave) {
+        setStatus("O Brave não faz reconhecimento de voz. Para conversar falando, abra o Alfred no Edge ou no Chrome.", true);
+      }
+
+      function syncMic() {
+        $("mic").classList.toggle("session", voiceSession);
+        $("mic").classList.toggle("listening", listening === "command");
+        $("mic").setAttribute("aria-pressed", String(voiceSession));
+      }
+
+      function startVoiceSession() {
+        if (!Recognition) {
+          setStatus("Para conversar por voz, abra o Alfred no Edge ou no Chrome.", true);
+          return;
+        }
+        voiceSession = true;
+        silentRounds = 0;
+        quickEnds = 0;
+        setStatus("Conversa por voz ligada: fale quando quiser. Diga “tchau” ou clique no 🎙 para encerrar.");
+        speaker.cancel();
+        earcons.listen();
+        listen("command");
+      }
+
+      function endVoiceSession(message, warn = false) {
+        const was = voiceSession;
+        voiceSession = false;
+        stopListening();
+        syncMic();
+        if (message) setStatus(message, warn);
+        else if (was) setStatus("Conversa por voz encerrada.");
+        scheduleListening(); // volta a esperar “Alfred”, se essa opção estiver ligada
       }
 
       function stopListening() {
@@ -391,7 +434,7 @@
         try {
           r.abort();
         } catch {}
-        $("mic").classList.remove("listening");
+        syncMic();
         settle();
       }
 
@@ -406,8 +449,11 @@
         const startedAt = Date.now();
         let finalText = "";
         let fired = false;
+        let heardSomething = false;
+        let fatal = null;
 
         r.onresult = (e) => {
+          heardSomething = true;
           let interim = "";
           for (let i = e.resultIndex; i < e.results.length; i++) {
             const res = e.results[i];
@@ -428,6 +474,8 @@
             return;
           }
           fired = true;
+          voiceSession = true; // chamou pelo nome: a conversa continua por voz
+          silentRounds = 0;
           stopListening();
           if (heard.command) {
             ask(heard.command, { viaVoice: true });
@@ -437,35 +485,47 @@
           }
         };
         r.onerror = (e) => {
-          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-            $("wake").checked = false;
-            store.set("toggle:wake", false);
-            setStatus("Permita o microfone (cadeado na barra de endereço). A página precisa estar em localhost ou https.", true);
-          } else if (e.error === "audio-capture") {
-            setStatus("Nenhum microfone encontrado.", true);
-          }
+          if (MIC_ERRORS[e.error]) fatal = e.error;
+          // "no-speech" e "aborted" são normais: silêncio, ou nós mesmos fechamos o microfone.
         };
         r.onend = () => {
           if (rec !== r) return;
           rec = null;
           listening = null;
-          $("mic").classList.remove("listening");
+          syncMic();
           settle();
+          if (fatal) {
+            $("wake").checked = false;
+            store.set("toggle:wake", false);
+            endVoiceSession(MIC_ERRORS[fatal], true);
+            return;
+          }
           if (mode === "command") {
             const text = $("text").value.trim();
             $("text").value = "";
             if (text) {
+              silentRounds = 0;
+              if (voiceSession && isStopPhrase(text)) {
+                endVoiceSession("Conversa por voz encerrada.");
+                $("caption").textContent = "Às suas ordens, senhor.";
+                if ($("speak").checked) speaker.sayAll("Às suas ordens, senhor.");
+                return;
+              }
               earcons.done();
               ask(text, { viaVoice: true });
               return;
             }
+            if (voiceSession && ++silentRounds >= MAX_SILENT_ROUNDS) {
+              endVoiceSession("Conversa por voz pausada depois de um tempo em silêncio. Clique no 🎙 para continuar.");
+              return;
+            }
           }
           // Evita loop quente se o reconhecimento cair logo ao abrir (sem rede, sem permissão).
-          quickEnds = Date.now() - startedAt < 1500 ? quickEnds + 1 : 0;
+          quickEnds = !heardSomething && Date.now() - startedAt < 1500 ? quickEnds + 1 : 0;
           if (quickEnds >= 3) {
             quickEnds = 0;
             $("wake").checked = false;
-            setStatus("O reconhecimento de voz parou. Toque no microfone para tentar de novo.", true);
+            endVoiceSession("O microfone parou de responder. Confira se ele está liberado e clique no 🎙 de novo.", true);
             return;
           }
           scheduleListening();
@@ -478,55 +538,47 @@
         }
         rec = r;
         listening = mode;
-        if (mode === "command") $("mic").classList.add("listening");
+        syncMic();
         settle();
       }
 
-      // Decide o que o microfone faz quando Alfred termina de falar.
+      // Decide o que o microfone faz quando Alfred termina de falar (ou quando uma escuta acaba).
       function scheduleListening() {
         clearTimeout(scheduled);
         scheduled = setTimeout(() => {
           scheduled = null;
           if (busy || speaker.speaking || rec) return;
-          if (lastViaVoice && $("followup").checked) {
-            lastViaVoice = false;
-            earcons.listen();
+          if (voiceSession) {
+            if (cueNext) earcons.listen();
+            cueNext = false;
             return listen("command");
           }
-          lastViaVoice = false;
           if ($("wake").checked) listen("wake");
         }, 200);
       }
 
       function interrupt() {
         speaker.cancel();
-        lastViaVoice = false;
         settle();
       }
 
       $("mic").addEventListener("click", () => {
         unlockAudio();
-        if (listening === "command") {
-          rec.stop(); // envia o que já ouviu
-          return;
-        }
-        speaker.cancel();
-        earcons.listen();
-        listen("command");
+        if (voiceSession) endVoiceSession();
+        else startVoiceSession();
       });
       $("wake").addEventListener("change", (e) => {
         store.set("toggle:wake", e.target.checked);
         if (e.target.checked) scheduleListening();
         else if (listening === "wake") stopListening();
       });
-      for (const id of ["followup", "speak"]) {
-        $(id).addEventListener("change", (e) => {
-          store.set("toggle:" + id, e.target.checked);
-          if (id === "speak" && !e.target.checked) speaker.cancel();
-        });
-      }
+      $("speak").addEventListener("change", (e) => {
+        store.set("toggle:speak", e.target.checked);
+        if (!e.target.checked) speaker.cancel();
+      });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") interrupt();
+        // Espaço (fora do campo de texto): segure para falar uma frase só.
         if (e.code === "Space" && document.activeElement === document.body && !e.repeat) {
           e.preventDefault();
           unlockAudio();
@@ -538,7 +590,7 @@
         }
       });
       document.addEventListener("keyup", (e) => {
-        if (e.code === "Space" && listening === "command" && document.activeElement === document.body) {
+        if (e.code === "Space" && listening === "command" && !voiceSession && document.activeElement === document.body) {
           rec.stop();
         }
       });

@@ -160,6 +160,15 @@ export function matchWakeWord(transcript) {
   return m ? { command: m[1].trim() } : null;
 }
 
+// Phrases that end a voice conversation ("tchau", "pode parar", "obrigado, Alfred"…).
+const STOP_PHRASE =
+  /^(?:(?:ok|tá|ta|então|entao)[\s,]+)?(?:tchau|até logo|ate logo|até mais|ate mais|pode parar|parar|para|encerrar|encerra|sair|chega|obrigado|obrigada)(?:[\s,]+(?:alfred|alfredo|por hoje|por enquanto))?[\s.!]*$/i;
+
+/** True when the user's whole phrase is a way of ending the conversation. */
+export function isStopPhrase(text) {
+  return STOP_PHRASE.test(String(text ?? "").trim());
+}
+
 /**
  * Speech output. Two engines:
  * - "browser": the Web Speech API queue (works everywhere, no setup).

@@ -36,7 +36,8 @@ pause
 exit /b 1
 :node_ok
 if not exist "alfred.env" copy "alfred.env.example" "alfred.env" >nul
-start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start http://localhost:20140/"
+rem Abre no Edge (vem com o Windows): ele reconhece voz em portugues e tem vozes naturais.
+start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start msedge http://localhost:20140/"
 "%NODE%" server.mjs %*
 echo.
 pause

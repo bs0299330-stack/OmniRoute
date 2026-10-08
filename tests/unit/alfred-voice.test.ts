@@ -103,3 +103,13 @@ test("matchWakeWord finds Alfred and the command after it", () => {
   assert.equal(matchWakeWord("o alfredinho chegou"), null);
   assert.equal(matchWakeWord("bom dia"), null);
 });
+
+test("isStopPhrase ends a voice conversation only on a whole goodbye phrase", async () => {
+  const { isStopPhrase } = await import("../../contrib/alfred/public/voice.mjs");
+  for (const yes of ["tchau", "Tchau, Alfred.", "pode parar", "obrigado Alfred", "ok, até logo", "encerrar"]) {
+    assert.equal(isStopPhrase(yes), true, yes);
+  }
+  for (const no of ["quero parar de fumar", "tchau é uma palavra", "obrigado pela ajuda com isso", "", "que horas são"]) {
+    assert.equal(isStopPhrase(no), false, no);
+  }
+});

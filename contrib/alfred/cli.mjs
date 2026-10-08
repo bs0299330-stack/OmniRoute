@@ -24,7 +24,7 @@ import {
   loadConfig,
   soxRecordArgs,
 } from "./lib.mjs";
-import { CHUNKING, createChunker } from "./public/voice.mjs";
+import { CHUNKING, createChunker, isStopPhrase } from "./public/voice.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENV_FILE = join(HERE, "alfred.env");
@@ -37,7 +37,6 @@ if (option("cerebro")) process.env.ALFRED_BRAIN = option("cerebro");
 
 const config = loadConfig();
 if (!flag("debug")) process.env.ALFRED_QUIET = "1"; // --debug mostra os logs técnicos
-const STOP_WORDS = /^(tchau|até logo|pode parar|parar|sair|obrigado,? alfred\.?)$/i;
 
 // ---------- Cores ----------
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -182,8 +181,9 @@ class Ears {
   }
 
   whyNot() {
-    if (!this.hasSox) return "instale o sox para usar o microfone (Windows: winget install ChrisBagwell.SoX; Mac: brew install sox; Linux: apt install sox).";
-    return "defina OPENAI_API_KEY (ou ALFRED_STT_MODEL do OmniRoute) para transcrever a sua voz.";
+    const site = "Para conversar por voz sem configurar nada, use o site (iniciar-alfred.cmd) e clique no 🎙.";
+    if (!this.stt) return `o microfone do terminal precisa de OPENAI_API_KEY para transcrever. ${site}`;
+    return `o microfone do terminal precisa do sox (winget install ChrisBagwell.SoX). ${site}`;
   }
 
   record(file) {
@@ -348,7 +348,7 @@ async function conversationLoop() {
       continue;
     }
     silent = 0;
-    if (STOP_WORDS.test(text.replace(/[.!]+$/, "").trim())) {
+    if (isStopPhrase(text)) {
       voice.say("Às suas ordens, senhor.");
       await voice.idle();
       break;
