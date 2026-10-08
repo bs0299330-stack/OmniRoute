@@ -9,6 +9,8 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "longas, emojis e blocos de código, e nunca invente fatos — diga quando não souber.",
 ].join(" ");
 
+// 20130 is taken by the 9Router embedded service and the Kiro MITM proxy.
+export const DEFAULT_PORT = 20140;
 export const MAX_HISTORY_MESSAGES = 40;
 export const MAX_MESSAGE_CHARS = 8000;
 
@@ -21,7 +23,7 @@ export function loadConfig(env = process.env) {
   const baseUrl = (env.OMNIROUTE_URL || "http://localhost:20128/v1").replace(/\/+$/, "");
   return {
     host: env.ALFRED_HOST || "127.0.0.1",
-    port: parsePort(env.ALFRED_PORT, 20130),
+    port: parsePort(env.ALFRED_PORT, DEFAULT_PORT),
     baseUrl,
     apiKey: env.OMNIROUTE_API_KEY || "",
     model: env.ALFRED_MODEL || "auto",

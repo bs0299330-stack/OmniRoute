@@ -14,7 +14,7 @@ import {
 test("loadConfig applies defaults", () => {
   const config = loadConfig({});
   assert.equal(config.host, "127.0.0.1");
-  assert.equal(config.port, 20130);
+  assert.equal(config.port, 20140);
   assert.equal(config.baseUrl, "http://localhost:20128/v1");
   assert.equal(config.model, "auto");
   assert.equal(config.systemPrompt, DEFAULT_SYSTEM_PROMPT);
@@ -27,7 +27,7 @@ test("loadConfig reads env, strips trailing slash and rejects bad ports", () => 
     ALFRED_MODEL: "auto/fast",
   });
   assert.equal(config.baseUrl, "http://box:1234/v1");
-  assert.equal(config.port, 20130);
+  assert.equal(config.port, 20140);
   assert.equal(config.model, "auto/fast");
   assert.equal(loadConfig({ ALFRED_PORT: "8080" }).port, 8080);
 });

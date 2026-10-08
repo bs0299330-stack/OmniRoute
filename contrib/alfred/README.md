@@ -13,20 +13,39 @@ automático que você já configurou.
 ## Como usar
 
 1. Deixe o OmniRoute rodando (`npm run dev` ou `omniroute`) com pelo menos um provedor conectado.
-2. Configure o Alfred:
+2. (Opcional) Configure o Alfred — o servidor lê `contrib/alfred/alfred.env` sozinho se ele existir:
 
    ```bash
    cp contrib/alfred/alfred.env.example contrib/alfred/alfred.env
    # edite OMNIROUTE_API_KEY (se o seu OmniRoute exige chave) e ALFRED_MODEL
    ```
 
-3. Inicie:
+3. Inicie **no mesmo computador** onde está o código (deixe o terminal aberto):
 
    ```bash
-   node --env-file=contrib/alfred/alfred.env contrib/alfred/server.mjs
+   node contrib/alfred/server.mjs
    ```
 
-4. Abra <http://localhost:20130> no **Chrome ou Edge** e permita o microfone.
+   Ele mostra o endereço e se o OmniRoute está respondendo:
+
+   ```
+   🎩 Alfred às suas ordens em http://127.0.0.1:20140
+      cérebro: http://localhost:20128/v1 (modelo "auto")
+      ✅ OmniRoute respondendo.
+   ```
+
+4. Abra <http://localhost:20140> no **Chrome ou Edge** desse mesmo computador e permita o microfone.
+
+## Não abre?
+
+| Sintoma                                              | Causa / solução                                                                                                                                     |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Não é possível acessar esse site" em `localhost`    | O servidor não está rodando **nesse aparelho**. `localhost` é sempre o próprio aparelho: rode o passo 3 no mesmo PC e mantenha o terminal aberto. |
+| Abre no PC mas não no celular                        | O Alfred escuta só no próprio PC por padrão. Veja "Usar no celular" abaixo.                                                                         |
+| `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
+| Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute (`npm run dev` ou `omniroute`) ou ajuste `OMNIROUTE_URL`.                                                              |
+| "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
+| Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
 ### Formas de falar
 
@@ -44,9 +63,11 @@ O histórico fica no `localStorage` do navegador (últimas 40 mensagens).
 
 O navegador só libera o microfone em `localhost` ou **https**. Para acessar de outro aparelho:
 
-1. Defina um token: `ALFRED_TOKEN=um-segredo-longo` e `ALFRED_HOST=0.0.0.0`.
+1. Defina um token: `ALFRED_TOKEN=um-segredo-longo` e `ALFRED_HOST=0.0.0.0`. O servidor passa a
+   mostrar também os endereços de rede (`http://192.168.x.x:20140`) — pelo IP só a parte de
+   texto funciona; o microfone exige https.
 2. Publique com https — por exemplo, um túnel (Cloudflare Tunnel, Tailscale Serve, ngrok)
-   apontando para a porta `20130`.
+   apontando para a porta `20140`.
 3. Abra a URL https no celular; o Alfred pede o token na primeira mensagem.
    No Android/Chrome, "Adicionar à tela inicial" deixa com cara de app.
 
@@ -58,7 +79,7 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 | `OMNIROUTE_API_KEY`    | —                            | Chave de API do OmniRoute                        |
 | `ALFRED_MODEL`         | `auto`                       | Modelo ou combo (`auto/fast`, `auto/smart`, …)  |
 | `ALFRED_HOST`          | `127.0.0.1`                  | Interface de escuta                              |
-| `ALFRED_PORT`          | `20130`                      | Porta                                            |
+| `ALFRED_PORT`          | `20140`                      | Porta                                            |
 | `ALFRED_TOKEN`         | —                            | Exige `Authorization: Bearer` nas rotas `/api/*` |
 | `ALFRED_USER_NAME`     | —                            | Como o Alfred deve chamar você                   |
 | `ALFRED_SYSTEM_PROMPT` | persona de mordomo em pt-BR  | Substitui a personalidade inteira                |
