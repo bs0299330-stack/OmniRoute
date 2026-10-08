@@ -353,7 +353,6 @@
   import {
     VOICE_DEFAULTS,
     VOICE_TEST_LINE,
-    createChunker,
     createEarcons,
     createSpeaker,
   } from "./voice.mjs";
@@ -385,7 +384,8 @@
   };
 
   let turns = store.get("turns", []);
-  let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice", {}), engine: "browser" };
+  // "voice:v2": the first version stored a lowered pitch that made voices sound robotic.
+  let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice:v2", {}), engine: "browser" };
   let sample = null;
   let ctl = null;
   let busy = false;
@@ -453,7 +453,7 @@
   }
   function saveVoice(patch) {
     voiceSettings = { ...voiceSettings, ...patch };
-    store.set("voice", voiceSettings);
+    store.set("voice:v2", voiceSettings);
     syncVoiceUi();
   }
   speaker.onVoices((voices) => {
@@ -520,7 +520,7 @@
     const bubble = addTurn("alfred thinking", "…");
     setBusy(true);
     ctl = new AbortController();
-    const chunker = createChunker();
+    const chunker = speaker.chunker();
     const say = (pieces) => {
       if ($("speak").checked) for (const p of pieces) speaker.say(p);
     };

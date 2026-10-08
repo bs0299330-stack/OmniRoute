@@ -18,6 +18,7 @@ import {
   createSseParser,
   isAuthorized,
   loadConfig,
+  ttsVoices,
   validateChatBody,
   validateTtsBody,
 } from "./lib.mjs";
@@ -64,38 +65,55 @@ function omniHeaders() {
 }
 
 async function handleTts(req, res) {
-  if (!config.ttsModel) return sendJson(res, 404, { error: "Voz neural desativada (ALFRED_TTS_MODEL)." });
+  if (!config.ttsProvider) {
+    return sendJson(res, 404, { error: "Voz de IA desligada (defina OPENAI_API_KEY ou ALFRED_TTS_MODEL)." });
+  }
   let body;
   try {
     body = await readJsonBody(req);
   } catch {
     return sendJson(res, 400, { error: "JSON inválido ou grande demais." });
   }
-  const check = validateTtsBody(body);
+  const check = validateTtsBody(body, config);
   if (!check.ok) return sendJson(res, 400, { error: check.error });
 
+  const tts = buildTtsRequest(config, check.text, check.voice);
+  const controller = new AbortController();
+  res.on("close", () => controller.abort());
+  const timer = setTimeout(() => controller.abort(), 30000);
   let upstream;
   try {
-    upstream = await fetch(`${config.baseUrl}/audio/speech`, {
+    upstream = await fetch(tts.url, {
       method: "POST",
-      headers: omniHeaders(),
-      body: JSON.stringify(buildTtsRequest(config, check.text)),
-      signal: AbortSignal.timeout(30000),
+      headers: {
+        "content-type": "application/json",
+        ...(tts.apiKey ? { authorization: `Bearer ${tts.apiKey}` } : {}),
+      },
+      body: JSON.stringify(tts.body),
+      signal: controller.signal,
     });
   } catch (err) {
-    console.error("[alfred] TTS unreachable:", err?.message);
-    return sendJson(res, 502, { error: "Não consegui gerar a voz no OmniRoute." });
+    clearTimeout(timer);
+    if (!controller.signal.aborted) console.error("[alfred] TTS unreachable:", err?.message);
+    return sendJson(res, 502, { error: "Não consegui gerar a voz." });
   }
   if (!upstream.ok || !upstream.body) {
+    clearTimeout(timer);
     console.error("[alfred] TTS HTTP", upstream.status, await upstream.text().catch(() => ""));
-    return sendJson(res, 502, { error: `A voz falhou no OmniRoute (${upstream.status}).` });
+    return sendJson(res, 502, { error: `A voz de IA falhou (${upstream.status}).` });
   }
   res.writeHead(200, {
     "content-type": upstream.headers.get("content-type") || "audio/mpeg",
     "cache-control": "no-store",
   });
-  for await (const chunk of upstream.body) res.write(chunk);
-  res.end();
+  try {
+    for await (const chunk of upstream.body) res.write(chunk);
+  } catch (err) {
+    if (!controller.signal.aborted) console.error("[alfred] TTS stream error:", err?.message);
+  } finally {
+    clearTimeout(timer);
+    res.end();
+  }
 }
 
 async function handleChat(req, res) {
@@ -166,7 +184,9 @@ const server = createServer(async (req, res) => {
         ok: true,
         model: config.model,
         auth: !!config.accessToken,
-        tts: !!config.ttsModel,
+        tts: config.ttsProvider
+          ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config) }
+          : null,
       });
     }
     if (url.pathname.startsWith("/api/") && !isAuthorized(config, req.headers.authorization)) {
@@ -225,9 +245,9 @@ server.listen(config.port, config.host, () => {
   }
   console.log(`   cérebro: ${config.baseUrl} (modelo "${config.model}")`);
   console.log(
-    config.ttsModel
-      ? `   voz neural: ${config.ttsModel} (voz "${config.ttsVoice}")`
-      : "   voz: a do navegador (defina ALFRED_TTS_MODEL para voz neural)"
+    config.ttsProvider
+      ? `   voz de IA: ${config.ttsProvider === "openai" ? "OpenAI" : "OmniRoute"} ${config.ttsModel} (voz "${config.ttsVoice}")`
+      : "   voz: a do navegador (defina OPENAI_API_KEY para a voz de IA)"
   );
   if (config.host !== "127.0.0.1" && config.host !== "localhost" && !config.accessToken) {
     console.warn("   ⚠️  Exposto na rede sem ALFRED_TOKEN — defina um token de acesso.");

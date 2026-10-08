@@ -2,8 +2,27 @@
 // (claude/index.html). The pure helpers (cleanForSpeech, createChunker, rankVoices,
 // matchWakeWord) are unit-tested in Node; createSpeaker/createEarcons only run in a browser.
 
-/** Alfred's default delivery: a little slower and deeper than the voice's natural pitch. */
-export const VOICE_DEFAULTS = Object.freeze({ voiceURI: "", rate: 0.95, pitch: 0.85, engine: "browser" });
+/**
+ * Defaults keep the voice's natural rate and pitch: bending pitch is what makes natural/neural
+ * voices sound robotic. `aiVoice` is the voice used by the AI (neural) engine.
+ */
+export const VOICE_DEFAULTS = Object.freeze({
+  voiceURI: "",
+  rate: 1,
+  pitch: 1,
+  engine: "browser",
+  aiVoice: "",
+});
+
+/**
+ * Chunk sizes per engine. Every chunk boundary is an audible seam (a new utterance or a new audio
+ * file), so after a quick first chunk the rest is grouped into longer runs of whole sentences.
+ * Browser chunks stay under ~200 chars because Chrome cuts off utterances longer than ~15 s.
+ */
+export const CHUNKING = Object.freeze({
+  browser: { firstAtComma: true, firstMin: 28, minLater: 110, max: 200 },
+  neural: { firstAtComma: false, firstMin: 28, minLater: 160, max: 400 },
+});
 
 export const VOICE_TEST_LINE = "Pois não, senhor. Alfred às suas ordens. Em que posso ser útil hoje?";
 
@@ -30,11 +49,11 @@ export function cleanForSpeech(text) {
 }
 
 /**
- * Turns a token stream into speakable chunks: whole sentences, an early first chunk at a
- * comma (so Alfred starts talking sooner) and long sentences split at a pause or a space.
- * Short chunks also dodge Chrome's habit of cutting off utterances longer than ~15 s.
+ * Turns a token stream into speakable chunks: the first sentence (or, with `firstAtComma`, the
+ * first clause) as soon as it is complete, then runs of whole sentences of at least `minLater`
+ * chars, and anything longer than `max` split at a pause or a space.
  */
-export function createChunker({ firstMin = 28, max = 170 } = {}) {
+export function createChunker({ firstAtComma = true, firstMin = 28, minLater = 0, max = 170 } = {}) {
   let buf = "";
   let emitted = 0;
 
@@ -47,12 +66,16 @@ export function createChunker({ firstMin = 28, max = 170 } = {}) {
   function next() {
     SENTENCE_END.lastIndex = 0;
     let m;
+    let lastEnd = 0;
     while ((m = SENTENCE_END.exec(buf))) {
       const end = m.index + m[0].length;
       if (m[0][0] === "." && ABBREVIATION_END.test(buf.slice(0, m.index + 1))) continue;
-      return take(end);
+      if (emitted === 0 || end >= minLater) return take(end);
+      lastEnd = end;
     }
-    if (emitted === 0) {
+    // Sentences are waiting to be grouped, but the run would grow too long: send what we have.
+    if (lastEnd > 0 && buf.length > max) return take(lastEnd);
+    if (emitted === 0 && firstAtComma) {
       SOFT_BREAK.lastIndex = 0;
       while ((m = SOFT_BREAK.exec(buf))) {
         if (m.index >= firstMin) return take(m.index + 1);
@@ -264,9 +287,14 @@ export function createSpeaker({ getSettings, fetchNeural = null, onError = () =>
       if (settings().engine === "neural" && fetchNeural) sayNeural(clean, generation);
       else sayBrowser(clean, generation);
     },
+    /** A chunker tuned for the engine in use. */
+    chunker() {
+      const neural = settings().engine === "neural" && !!fetchNeural;
+      return createChunker(neural ? CHUNKING.neural : CHUNKING.browser);
+    },
     /** Speak a whole text, chunked. */
     sayAll(text) {
-      const chunker = createChunker();
+      const chunker = this.chunker();
       for (const piece of [...chunker.push(text + " "), ...chunker.flush()]) this.say(piece);
     },
     /** Stop now and drop the queue. */

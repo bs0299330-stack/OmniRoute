@@ -273,9 +273,13 @@
           <label class="field" for="engine" id="engineField" hidden>
             Motor
             <select id="engine">
+              <option value="neural">Voz de IA</option>
               <option value="browser">Voz do navegador</option>
-              <option value="neural">Voz neural (OmniRoute)</option>
             </select>
+          </label>
+          <label class="field" for="aiVoice" id="aiVoiceField" hidden>
+            Voz de IA
+            <select id="aiVoice"></select>
           </label>
           <label class="field" for="voice" id="voiceField">
             Voz
@@ -314,7 +318,6 @@
       import {
         VOICE_DEFAULTS,
         VOICE_TEST_LINE,
-        createChunker,
         createEarcons,
         createSpeaker,
         matchWakeWord,
@@ -340,9 +343,11 @@
 
       let history = store.get("history", []);
       let token = store.get("token", "");
-      let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice", {}) };
+      // "voice:v2": the first version stored a lowered pitch that made voices sound robotic.
+      let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice:v2", {}) };
       let busy = false;
       let ttsAvailable = false;
+      let tts = null; // { provider, voice, voices } from /api/health
       let lastViaVoice = false;
       for (const id of ["wake", "followup", "speak"]) {
         $(id).checked = store.get("toggle:" + id, $(id).checked);
@@ -356,12 +361,12 @@
           const res = await fetch("api/tts", {
             method: "POST",
             headers: { "content-type": "application/json", ...authHeaders() },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, voice: voiceSettings.aiVoice || tts?.voice }),
           });
           if (!res.ok) throw new Error("tts " + res.status);
           return res.blob();
         },
-        onError: () => setStatus("A voz neural falhou; usando a voz do navegador."),
+        onError: () => setStatus("A voz de IA falhou nesta frase; usei a voz do navegador."),
       });
 
       // ---------- Interface ----------
@@ -401,11 +406,14 @@
         const neural = voiceSettings.engine === "neural" && ttsAvailable;
         $("voiceField").hidden = neural;
         $("pitchField").hidden = neural;
+        $("rate").closest("label").hidden = neural;
+        $("aiVoiceField").hidden = !neural || !(tts?.voices?.length > 0);
         $("voice").value = voiceSettings.voiceURI;
+        $("aiVoice").value = voiceSettings.aiVoice || tts?.voice || "";
       }
       function saveVoice(patch) {
         voiceSettings = { ...voiceSettings, ...patch };
-        store.set("voice", voiceSettings);
+        store.set("voice:v2", voiceSettings);
         syncVoiceUi();
       }
       speaker.onVoices((voices) => {
@@ -421,6 +429,7 @@
       });
       $("engine").addEventListener("change", (e) => saveVoice({ engine: e.target.value }));
       $("voice").addEventListener("change", (e) => saveVoice({ voiceURI: e.target.value }));
+      $("aiVoice").addEventListener("change", (e) => saveVoice({ aiVoice: e.target.value }));
       $("rate").addEventListener("input", (e) => saveVoice({ rate: Number(e.target.value) }));
       $("pitch").addEventListener("input", (e) => saveVoice({ pitch: Number(e.target.value) }));
       $("testVoice").addEventListener("click", () => {
@@ -429,6 +438,8 @@
       });
       $("resetVoice").addEventListener("click", () => {
         saveVoice({ ...VOICE_DEFAULTS, engine: ttsAvailable ? "neural" : "browser" });
+        speaker.cancel();
+        speaker.sayAll(VOICE_TEST_LINE);
       });
 
       speaker.onChange((speaking) => {
@@ -449,7 +460,7 @@
         lastViaVoice = viaVoice;
         stopListening();
         speaker.cancel();
-        const chunker = createChunker();
+        const chunker = speaker.chunker();
         const say = (pieces) => {
           if ($("speak").checked) for (const p of pieces) speaker.say(p);
         };
@@ -715,9 +726,13 @@
         .then((r) => r.json())
         .then((h) => {
           $("model").textContent = "cérebro: " + h.model;
-          ttsAvailable = !!h.tts;
+          tts = h.tts || null;
+          ttsAvailable = !!tts;
           $("engineField").hidden = !ttsAvailable;
-          if (ttsAvailable && !store.get("voice", null)) saveVoice({ engine: "neural" });
+          const aiSelect = $("aiVoice");
+          aiSelect.innerHTML = "";
+          for (const v of tts?.voices ?? []) aiSelect.add(new Option(v === tts.voice ? v + " (padrão)" : v, v));
+          if (ttsAvailable && !store.get("voice:v2", null)) saveVoice({ engine: "neural" });
           if (!ttsAvailable && voiceSettings.engine === "neural") saveVoice({ engine: "browser" });
           syncVoiceUi();
         })

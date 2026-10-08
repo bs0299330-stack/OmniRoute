@@ -15,12 +15,33 @@ export const MAX_HISTORY_MESSAGES = 40;
 export const MAX_MESSAGE_CHARS = 8000;
 export const MAX_TTS_CHARS = 1000;
 
-// Voice direction for TTS models that accept `instructions` (e.g. OpenAI gpt-4o-mini-tts).
+// Voice direction for TTS models that accept `instructions` (OpenAI gpt-4o-mini-tts).
 // An original butler character, not an imitation of any real actor's voice.
 export const DEFAULT_TTS_INSTRUCTIONS = [
-  "Fale em português do Brasil como um mordomo inglês experiente e refinado: voz grave,",
-  "calma e acolhedora, ritmo pausado, dicção impecável e um toque de ironia gentil.",
+  "Personagem: um mordomo experiente e refinado, de meia-idade.",
+  "Voz: masculina, grave, calma e acolhedora.",
+  "Ritmo: fluido e pausado, sem pressa, com pausas naturais nas vírgulas.",
+  "Tom: cordial e confiante, com um toque de ironia gentil.",
+  "Pronúncia: português do Brasil com sotaque brasileiro natural e dicção clara.",
 ].join(" ");
+
+export const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
+// Voices accepted by OpenAI TTS; marin/cedar are the newest, gpt-4o-mini-tts only.
+export const OPENAI_TTS_VOICES = Object.freeze([
+  "onyx",
+  "ash",
+  "echo",
+  "fable",
+  "ballad",
+  "sage",
+  "verse",
+  "cedar",
+  "marin",
+  "alloy",
+  "coral",
+  "nova",
+  "shimmer",
+]);
 
 function parseNumber(value, fallback, min, max) {
   const n = Number.parseFloat(String(value ?? ""));
@@ -43,12 +64,39 @@ export function loadConfig(env = process.env) {
     accessToken: env.ALFRED_TOKEN || "",
     userName: env.ALFRED_USER_NAME || "",
     systemPrompt: env.ALFRED_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
-    // Neural voice through OmniRoute /v1/audio/speech — off unless a model is set.
-    ttsModel: env.ALFRED_TTS_MODEL || "",
+    ...resolveTts(env),
+  };
+}
+
+/**
+ * AI voice: "openai" (direct, OPENAI_API_KEY) or "omniroute" (/v1/audio/speech with
+ * ALFRED_TTS_MODEL). Picked automatically unless ALFRED_TTS_PROVIDER says otherwise; "" = off.
+ */
+export function resolveTts(env = process.env) {
+  const openaiKey = env.OPENAI_API_KEY || "";
+  let provider = (env.ALFRED_TTS_PROVIDER || "").toLowerCase();
+  if (!["openai", "omniroute", "off"].includes(provider)) {
+    provider = openaiKey ? "openai" : env.ALFRED_TTS_MODEL ? "omniroute" : "";
+  }
+  if (provider === "off" || (provider === "openai" && !openaiKey)) provider = "";
+  if (provider === "omniroute" && !env.ALFRED_TTS_MODEL) provider = "";
+  const model = env.ALFRED_TTS_MODEL || (provider === "openai" ? "gpt-4o-mini-tts" : "");
+  return {
+    ttsProvider: provider,
+    ttsModel: provider ? model : "",
     ttsVoice: env.ALFRED_TTS_VOICE || "onyx",
     ttsSpeed: parseNumber(env.ALFRED_TTS_SPEED, 1, 0.25, 4),
     ttsInstructions: env.ALFRED_TTS_INSTRUCTIONS || DEFAULT_TTS_INSTRUCTIONS,
+    openaiKey,
   };
+}
+
+/** Voices the page may pick from (empty list = only the configured voice). */
+export function ttsVoices(config) {
+  if (config.ttsProvider !== "openai") return [];
+  const voices = [...OPENAI_TTS_VOICES];
+  if (!voices.includes(config.ttsVoice)) voices.unshift(config.ttsVoice);
+  return voices;
 }
 
 export function buildSystemPrompt(config, now = new Date()) {
@@ -125,25 +173,32 @@ export function createSseParser() {
   };
 }
 
-/** Validates `{ text }` for /api/tts. */
-export function validateTtsBody(body) {
+/** Validates `{ text, voice? }` for /api/tts; an unknown voice falls back to the configured one. */
+export function validateTtsBody(body, config) {
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   if (!text) return { ok: false, error: "Campo 'text' é obrigatório." };
   if (text.length > MAX_TTS_CHARS) {
     return { ok: false, error: `Texto longo demais (máx. ${MAX_TTS_CHARS} caracteres).` };
   }
-  return { ok: true, text };
+  const voice = ttsVoices(config).includes(body?.voice) ? body.voice : config.ttsVoice;
+  return { ok: true, text, voice };
 }
 
-export function buildTtsRequest(config, text) {
-  return {
+/** URL, headers and body for one TTS call. */
+export function buildTtsRequest(config, text, voice = config.ttsVoice) {
+  const steerable = /gpt-4o.*tts/i.test(config.ttsModel);
+  const body = {
     model: config.ttsModel,
     input: text,
-    voice: config.ttsVoice,
+    voice,
     response_format: "mp3",
-    speed: config.ttsSpeed,
-    instructions: config.ttsInstructions,
+    // gpt-4o-mini-tts takes its pace from `instructions`; tts-1/tts-1-hd take `speed`.
+    ...(steerable ? { instructions: config.ttsInstructions } : { speed: config.ttsSpeed }),
   };
+  if (config.ttsProvider === "openai") {
+    return { url: OPENAI_TTS_URL, apiKey: config.openaiKey, body };
+  }
+  return { url: `${config.baseUrl}/audio/speech`, apiKey: config.apiKey, body };
 }
 
 export function isAuthorized(config, headerValue) {

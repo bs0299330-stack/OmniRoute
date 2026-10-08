@@ -88,26 +88,54 @@ test("isAuthorized only enforces when a token is configured", () => {
   assert.equal(isAuthorized(config, "Bearer s3cret"), true);
 });
 
-test("neural voice is off by default and configurable", async () => {
-  const { buildTtsRequest, validateTtsBody, MAX_TTS_CHARS, DEFAULT_TTS_INSTRUCTIONS } = await import(
-    "../../contrib/alfred/lib.mjs"
-  );
-  assert.equal(loadConfig({}).ttsModel, "");
-  const config = loadConfig({
-    ALFRED_TTS_MODEL: "openai/gpt-4o-mini-tts",
-    ALFRED_TTS_SPEED: "9",
-  });
+test("AI voice: off by default, OpenAI direct when OPENAI_API_KEY is set", async () => {
+  const { buildTtsRequest, validateTtsBody, ttsVoices, MAX_TTS_CHARS, DEFAULT_TTS_INSTRUCTIONS, OPENAI_TTS_URL } =
+    await import("../../contrib/alfred/lib.mjs");
+
+  assert.equal(loadConfig({}).ttsProvider, "");
+  assert.equal(loadConfig({ ALFRED_TTS_PROVIDER: "openai" }).ttsProvider, "", "no key → off");
+
+  const config = loadConfig({ OPENAI_API_KEY: "sk-test", OMNIROUTE_API_KEY: "omni" });
+  assert.equal(config.ttsProvider, "openai");
+  assert.equal(config.ttsModel, "gpt-4o-mini-tts");
   assert.equal(config.ttsVoice, "onyx");
-  assert.equal(config.ttsSpeed, 1);
-  assert.deepEqual(buildTtsRequest(config, "Pois não."), {
-    model: "openai/gpt-4o-mini-tts",
+  assert.ok(ttsVoices(config).includes("cedar"));
+
+  const req = buildTtsRequest(config, "Pois não.", "ash");
+  assert.equal(req.url, OPENAI_TTS_URL);
+  assert.equal(req.apiKey, "sk-test");
+  assert.deepEqual(req.body, {
+    model: "gpt-4o-mini-tts",
     input: "Pois não.",
-    voice: "onyx",
+    voice: "ash",
     response_format: "mp3",
-    speed: 1,
     instructions: DEFAULT_TTS_INSTRUCTIONS,
   });
-  assert.equal(validateTtsBody({}).ok, false);
-  assert.equal(validateTtsBody({ text: "x".repeat(MAX_TTS_CHARS + 1) }).ok, false);
-  assert.deepEqual(validateTtsBody({ text: "  Olá  " }), { ok: true, text: "Olá" });
+
+  assert.equal(validateTtsBody({}, config).ok, false);
+  assert.equal(validateTtsBody({ text: "x".repeat(MAX_TTS_CHARS + 1) }, config).ok, false);
+  assert.deepEqual(validateTtsBody({ text: "  Olá  ", voice: "echo" }, config), {
+    ok: true,
+    text: "Olá",
+    voice: "echo",
+  });
+  assert.equal(validateTtsBody({ text: "Olá", voice: "../../etc" }, config).voice, "onyx");
+});
+
+test("AI voice through OmniRoute uses its key and speed for tts-1 models", async () => {
+  const { buildTtsRequest, ttsVoices } = await import("../../contrib/alfred/lib.mjs");
+  const config = loadConfig({
+    OMNIROUTE_URL: "http://box:20128/v1",
+    OMNIROUTE_API_KEY: "omni",
+    ALFRED_TTS_MODEL: "openai/tts-1-hd",
+    ALFRED_TTS_SPEED: "1.1",
+  });
+  assert.equal(config.ttsProvider, "omniroute");
+  assert.deepEqual(ttsVoices(config), []);
+  const req = buildTtsRequest(config, "Olá");
+  assert.equal(req.url, "http://box:20128/v1/audio/speech");
+  assert.equal(req.apiKey, "omni");
+  assert.equal(req.body.speed, 1.1);
+  assert.equal(req.body.instructions, undefined);
+  assert.equal(loadConfig({ ALFRED_TTS_PROVIDER: "omniroute" }).ttsProvider, "", "no model → off");
 });

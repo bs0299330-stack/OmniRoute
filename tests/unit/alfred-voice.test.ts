@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  CHUNKING,
+  VOICE_DEFAULTS,
   cleanForSpeech,
   createChunker,
   matchWakeWord,
@@ -52,6 +54,28 @@ test("createChunker splits very long sentences at a pause", () => {
   assert.ok(out.length > 1);
   for (const piece of out) assert.ok(piece.length <= 80, piece);
   assert.equal(out.join(" "), long + ".");
+});
+
+test("after the first chunk, sentences are grouped into longer runs", () => {
+  const text =
+    "Pois não. O chá está pronto. A biblioteca foi arrumada. As cortinas foram trocadas. " +
+    "O carro está na garagem. Mais alguma coisa, senhor?";
+  const out = stream(createChunker(CHUNKING.neural), text);
+  assert.equal(out[0], "Pois não.");
+  assert.equal(out.length, 2);
+  assert.equal(out.join(" "), text);
+});
+
+test("grouping never exceeds the max run length", () => {
+  const sentence = "Esta é uma frase de tamanho médio para o teste. ";
+  const out = stream(createChunker({ ...CHUNKING.browser, firstAtComma: false }), sentence.repeat(12));
+  assert.ok(out.length >= 3);
+  for (const piece of out) assert.ok(piece.length <= CHUNKING.browser.max, piece);
+});
+
+test("the default voice keeps natural rate and pitch", () => {
+  assert.equal(VOICE_DEFAULTS.rate, 1);
+  assert.equal(VOICE_DEFAULTS.pitch, 1);
 });
 
 test("rankVoices prefers natural male pt-BR voices and drops other languages", () => {

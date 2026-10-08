@@ -6,8 +6,8 @@ OpenAI-compatível (`/v1/chat/completions`), então herda todos os provedores, c
 automático que você já configurou.
 
 - Sem dependências: um servidor Node (`server.mjs`) + uma página HTML.
-- Fala → texto pelo navegador (Web Speech API) e texto → fala pelo navegador **ou** por uma voz
-  neural do OmniRoute (`/v1/audio/speech`), em pt-BR.
+- Fala → texto pelo navegador (Web Speech API) e texto → fala por uma **voz de IA da OpenAI**
+  (`gpt-4o-mini-tts`, direto ou via OmniRoute) ou, sem configurar nada, pela voz do navegador.
 - Conversa contínua: diga "Alfred, …", ele responde e já escuta a sua próxima frase.
 - Responde em streaming e começa a falar a primeira frase antes da resposta terminar.
 - A chave do OmniRoute fica no servidor — nunca vai para o navegador.
@@ -65,27 +65,32 @@ Alfred fala, o microfone fica fechado para ele não ouvir a própria voz.
 
 ### A voz do Alfred
 
-Em **Ajustar a voz** você escolhe a voz, a velocidade e o tom, e testa na hora. O padrão do Alfred
-é uma voz masculina, um pouco mais lenta (0,95×) e mais grave (tom 0,85). O texto é falado frase a
-frase, sem markdown nem emojis, começando já na primeira vírgula para responder mais rápido.
+**Voz de IA (recomendado):** coloque a sua chave da OpenAI no `alfred.env`:
 
-A escolha automática prefere, nesta ordem: vozes **naturais/neurais** em pt-BR (no **Edge**,
-"Microsoft Antonio Online (Natural)" é a mais fluida), as do Google, vozes masculinas e o resto.
-Para a melhor voz sem configurar nada, use o **Microsoft Edge**.
+```bash
+OPENAI_API_KEY=sk-...
+ALFRED_TTS_VOICE=onyx   # grave; experimente ash, echo, cedar, ballad
+```
 
-**Voz neural (mais natural):** defina `ALFRED_TTS_MODEL` com um modelo de voz que o seu OmniRoute
-tenha conectado, por exemplo `openai/gpt-4o-mini-tts` com `ALFRED_TTS_VOICE=onyx` (grave). O
-Alfred pede cada frase ao OmniRoute assim que ela fica pronta e já busca a próxima enquanto a atual
-toca. Se a voz neural falhar, aquela frase sai na voz do navegador. O Alfred envia também uma
-direção de estilo (`ALFRED_TTS_INSTRUCTIONS`: mordomo inglês refinado, voz grave e pausada) para
-modelos que a aceitam. Hoje o OmniRoute não repassa esse campo ao provedor, então ela só passa a
-valer quando o OmniRoute passar a repassá-lo.
+O Alfred passa a falar com o `gpt-4o-mini-tts`, que soa natural e segue uma direção de estilo
+(`ALFRED_TTS_INSTRUCTIONS`): mordomo refinado, voz grave e calma, ritmo pausado, sotaque brasileiro.
+A primeira frase é pedida assim que fica pronta, e o resto da resposta vai em blocos de várias
+frases, buscados enquanto o bloco anterior toca. Assim não há corte a cada vírgula. Se a voz de IA
+falhar, aquele trecho sai na voz do navegador. Em **Ajustar a voz** você troca a voz de IA na hora.
+A chave fica só no servidor, nunca vai para o navegador.
+
+Para usar um provedor de voz conectado ao OmniRoute em vez da OpenAI direta:
+`ALFRED_TTS_PROVIDER=omniroute` e `ALFRED_TTS_MODEL=<provedor/modelo>`. O OmniRoute hoje não
+repassa `instructions`, então ali a direção de estilo não vale.
+
+**Voz do navegador (sem chave):** em **Ajustar a voz** você escolhe a voz, a velocidade e o tom, e
+testa na hora. O padrão mantém velocidade e tom naturais (1,0), porque alterar o tom é o que mais
+deixa as vozes com som robótico. A escolha automática prefere vozes **naturais/neurais** em pt-BR
+(no **Microsoft Edge**, "Microsoft Antonio Online (Natural)" é a mais fluida), depois as do Google,
+depois vozes masculinas.
 
 A voz é um personagem original no estilo de um mordomo. Ela não imita a voz de nenhum ator ou
-dublador real. Para usar uma voz específica do ElevenLabs, coloque o `voice_id` em
-`ALFRED_TTS_VOICE`, desde que você tenha o direito de usar essa voz.
-
-O histórico fica no `localStorage` do navegador (últimas 40 mensagens).
+dublador real.
 
 ## Usar no celular / fora de casa
 
@@ -109,10 +114,12 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 | `ALFRED_HOST`          | `127.0.0.1`                  | Interface de escuta                              |
 | `ALFRED_PORT`          | `20140`                      | Porta                                            |
 | `ALFRED_TOKEN`         | —                            | Exige `Authorization: Bearer` nas rotas `/api/*` |
-| `ALFRED_TTS_MODEL`     | —                            | Modelo de voz neural no OmniRoute (vazio = navegador) |
-| `ALFRED_TTS_VOICE`     | `onyx`                       | Voz do provedor (ou `voice_id` do ElevenLabs)    |
-| `ALFRED_TTS_SPEED`     | `1`                          | Velocidade da voz neural (0.25–4)                |
-| `ALFRED_TTS_INSTRUCTIONS` | mordomo inglês refinado   | Direção de estilo para modelos que aceitam       |
+| `OPENAI_API_KEY`       | —                            | Liga a voz de IA da OpenAI (gpt-4o-mini-tts)     |
+| `ALFRED_TTS_VOICE`     | `onyx`                       | Voz padrão (OpenAI: onyx, ash, echo, cedar…)     |
+| `ALFRED_TTS_PROVIDER`  | automático                   | `openai`, `omniroute` ou `off`                   |
+| `ALFRED_TTS_MODEL`     | `gpt-4o-mini-tts` (OpenAI)   | Modelo de voz (obrigatório com `omniroute`)      |
+| `ALFRED_TTS_SPEED`     | `1`                          | Velocidade, só para `tts-1`/`tts-1-hd`           |
+| `ALFRED_TTS_INSTRUCTIONS` | mordomo refinado          | Direção de estilo do `gpt-4o-mini-tts`           |
 | `ALFRED_USER_NAME`     | —                            | Como o Alfred deve chamar você                   |
 | `ALFRED_SYSTEM_PROMPT` | persona de mordomo em pt-BR  | Substitui a personalidade inteira                |
 
@@ -122,7 +129,7 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  OmniRoute /v1/chat/completions
           ▲                                       │
           ├────────── SSE {text} ◀────────────────┘
-          └── POST /api/tts (uma frase) ──▶ server.mjs ──▶ OmniRoute /v1/audio/speech  (opcional)
+          └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ OpenAI ou OmniRoute /audio/speech (opcional)
 ```
 
 - `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE); testadas em
