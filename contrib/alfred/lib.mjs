@@ -13,6 +13,19 @@ export const DEFAULT_SYSTEM_PROMPT = [
 export const DEFAULT_PORT = 20140;
 export const MAX_HISTORY_MESSAGES = 40;
 export const MAX_MESSAGE_CHARS = 8000;
+export const MAX_TTS_CHARS = 1000;
+
+// Voice direction for TTS models that accept `instructions` (e.g. OpenAI gpt-4o-mini-tts).
+// An original butler character, not an imitation of any real actor's voice.
+export const DEFAULT_TTS_INSTRUCTIONS = [
+  "Fale em português do Brasil como um mordomo inglês experiente e refinado: voz grave,",
+  "calma e acolhedora, ritmo pausado, dicção impecável e um toque de ironia gentil.",
+].join(" ");
+
+function parseNumber(value, fallback, min, max) {
+  const n = Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
 
 function parsePort(value, fallback) {
   const port = Number.parseInt(String(value ?? ""), 10);
@@ -30,6 +43,11 @@ export function loadConfig(env = process.env) {
     accessToken: env.ALFRED_TOKEN || "",
     userName: env.ALFRED_USER_NAME || "",
     systemPrompt: env.ALFRED_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
+    // Neural voice through OmniRoute /v1/audio/speech — off unless a model is set.
+    ttsModel: env.ALFRED_TTS_MODEL || "",
+    ttsVoice: env.ALFRED_TTS_VOICE || "onyx",
+    ttsSpeed: parseNumber(env.ALFRED_TTS_SPEED, 1, 0.25, 4),
+    ttsInstructions: env.ALFRED_TTS_INSTRUCTIONS || DEFAULT_TTS_INSTRUCTIONS,
   };
 }
 
@@ -104,6 +122,27 @@ export function createSseParser() {
       }
     }
     return { deltas, done };
+  };
+}
+
+/** Validates `{ text }` for /api/tts. */
+export function validateTtsBody(body) {
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  if (!text) return { ok: false, error: "Campo 'text' é obrigatório." };
+  if (text.length > MAX_TTS_CHARS) {
+    return { ok: false, error: `Texto longo demais (máx. ${MAX_TTS_CHARS} caracteres).` };
+  }
+  return { ok: true, text };
+}
+
+export function buildTtsRequest(config, text) {
+  return {
+    model: config.ttsModel,
+    input: text,
+    voice: config.ttsVoice,
+    response_format: "mp3",
+    speed: config.ttsSpeed,
+    instructions: config.ttsInstructions,
   };
 }
 

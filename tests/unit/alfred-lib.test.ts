@@ -87,3 +87,27 @@ test("isAuthorized only enforces when a token is configured", () => {
   assert.equal(isAuthorized(config, "Bearer nope"), false);
   assert.equal(isAuthorized(config, "Bearer s3cret"), true);
 });
+
+test("neural voice is off by default and configurable", async () => {
+  const { buildTtsRequest, validateTtsBody, MAX_TTS_CHARS, DEFAULT_TTS_INSTRUCTIONS } = await import(
+    "../../contrib/alfred/lib.mjs"
+  );
+  assert.equal(loadConfig({}).ttsModel, "");
+  const config = loadConfig({
+    ALFRED_TTS_MODEL: "openai/gpt-4o-mini-tts",
+    ALFRED_TTS_SPEED: "9",
+  });
+  assert.equal(config.ttsVoice, "onyx");
+  assert.equal(config.ttsSpeed, 1);
+  assert.deepEqual(buildTtsRequest(config, "Pois não."), {
+    model: "openai/gpt-4o-mini-tts",
+    input: "Pois não.",
+    voice: "onyx",
+    response_format: "mp3",
+    speed: 1,
+    instructions: DEFAULT_TTS_INSTRUCTIONS,
+  });
+  assert.equal(validateTtsBody({}).ok, false);
+  assert.equal(validateTtsBody({ text: "x".repeat(MAX_TTS_CHARS + 1) }).ok, false);
+  assert.deepEqual(validateTtsBody({ text: "  Olá  " }), { ok: true, text: "Olá" });
+});

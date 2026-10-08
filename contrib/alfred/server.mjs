@@ -14,10 +14,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildChatRequest,
+  buildTtsRequest,
   createSseParser,
   isAuthorized,
   loadConfig,
   validateChatBody,
+  validateTtsBody,
 } from "./lib.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -43,13 +45,57 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-async function serveIndex(res) {
-  const html = await readFile(join(HERE, "public", "index.html"));
+const STATIC_FILES = {
+  "/": ["index.html", "text/html; charset=utf-8"],
+  "/voice.mjs": ["voice.mjs", "text/javascript; charset=utf-8"],
+};
+
+async function serveStatic(res, [file, type]) {
+  const body = await readFile(join(HERE, "public", file));
+  res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
+  res.end(body);
+}
+
+function omniHeaders() {
+  return {
+    "content-type": "application/json",
+    ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
+  };
+}
+
+async function handleTts(req, res) {
+  if (!config.ttsModel) return sendJson(res, 404, { error: "Voz neural desativada (ALFRED_TTS_MODEL)." });
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    return sendJson(res, 400, { error: "JSON inválido ou grande demais." });
+  }
+  const check = validateTtsBody(body);
+  if (!check.ok) return sendJson(res, 400, { error: check.error });
+
+  let upstream;
+  try {
+    upstream = await fetch(`${config.baseUrl}/audio/speech`, {
+      method: "POST",
+      headers: omniHeaders(),
+      body: JSON.stringify(buildTtsRequest(config, check.text)),
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (err) {
+    console.error("[alfred] TTS unreachable:", err?.message);
+    return sendJson(res, 502, { error: "Não consegui gerar a voz no OmniRoute." });
+  }
+  if (!upstream.ok || !upstream.body) {
+    console.error("[alfred] TTS HTTP", upstream.status, await upstream.text().catch(() => ""));
+    return sendJson(res, 502, { error: `A voz falhou no OmniRoute (${upstream.status}).` });
+  }
   res.writeHead(200, {
-    "content-type": "text/html; charset=utf-8",
+    "content-type": upstream.headers.get("content-type") || "audio/mpeg",
     "cache-control": "no-store",
   });
-  res.end(html);
+  for await (const chunk of upstream.body) res.write(chunk);
+  res.end();
 }
 
 async function handleChat(req, res) {
@@ -69,10 +115,7 @@ async function handleChat(req, res) {
   try {
     upstream = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-      },
+      headers: omniHeaders(),
       body: JSON.stringify(buildChatRequest(config, check.messages)),
       signal: controller.signal,
     });
@@ -115,14 +158,22 @@ async function handleChat(req, res) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   try {
-    if (req.method === "GET" && url.pathname === "/") return await serveIndex(res);
+    if (req.method === "GET" && STATIC_FILES[url.pathname]) {
+      return await serveStatic(res, STATIC_FILES[url.pathname]);
+    }
     if (req.method === "GET" && url.pathname === "/api/health") {
-      return sendJson(res, 200, { ok: true, model: config.model, auth: !!config.accessToken });
+      return sendJson(res, 200, {
+        ok: true,
+        model: config.model,
+        auth: !!config.accessToken,
+        tts: !!config.ttsModel,
+      });
     }
     if (url.pathname.startsWith("/api/") && !isAuthorized(config, req.headers.authorization)) {
       return sendJson(res, 401, { error: "Token de acesso inválido." });
     }
     if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res);
+    if (req.method === "POST" && url.pathname === "/api/tts") return await handleTts(req, res);
     sendJson(res, 404, { error: "Não encontrado." });
   } catch (err) {
     console.error("[alfred] unexpected error:", err);
@@ -173,6 +224,11 @@ server.listen(config.port, config.host, () => {
     for (const url of lanUrls(config.port)) console.log(`   na rede: ${url}`);
   }
   console.log(`   cérebro: ${config.baseUrl} (modelo "${config.model}")`);
+  console.log(
+    config.ttsModel
+      ? `   voz neural: ${config.ttsModel} (voz "${config.ttsVoice}")`
+      : "   voz: a do navegador (defina ALFRED_TTS_MODEL para voz neural)"
+  );
   if (config.host !== "127.0.0.1" && config.host !== "localhost" && !config.accessToken) {
     console.warn("   ⚠️  Exposto na rede sem ALFRED_TOKEN — defina um token de acesso.");
   }

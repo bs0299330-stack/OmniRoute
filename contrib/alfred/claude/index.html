@@ -1,0 +1,654 @@
+<title>Alfred</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+/>
+<style>
+  /* Layout: one column "salão" — Alfred's lines set in serif italic (his voice), yours in sans; bell button docks at the bottom. */
+  :root {
+    --bg: #eef0ec;
+    --surface: #ffffff;
+    --ink: #17222b;
+    --muted: #5c6870;
+    --brass: #8a6a22;
+    --brass-ink: #ffffff;
+    --mine: #dfe5e1;
+    --line: #cfd6d1;
+    --danger: #a3302a;
+    --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10161b;
+      --surface: #182128;
+      --ink: #e4e8e5;
+      --muted: #94a1a8;
+      --brass: #d2ae5e;
+      --brass-ink: #10161b;
+      --mine: #22303a;
+      --line: #2b3943;
+      --danger: #ef8a83;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10161b;
+    --surface: #182128;
+    --ink: #e4e8e5;
+    --muted: #94a1a8;
+    --brass: #d2ae5e;
+    --brass-ink: #10161b;
+    --mine: #22303a;
+    --line: #2b3943;
+    --danger: #ef8a83;
+    color-scheme: dark;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    max-width: 720px;
+    margin: 0 auto;
+    padding-inline: 16px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-block: 18px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 2rem;
+    line-height: 1;
+    margin: 0;
+    letter-spacing: 0.01em;
+  }
+  header .tag {
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    flex: 1;
+    min-width: 0;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .chip-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .ghost {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .ghost:hover {
+    border-color: var(--brass);
+  }
+  #log {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-block: 20px;
+  }
+  .turn {
+    max-width: 88%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .turn.alfred {
+    align-self: flex-start;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.3rem;
+    line-height: 1.4;
+    padding-left: 14px;
+    border-left: 2px solid var(--brass);
+  }
+  .turn.alfred.thinking {
+    color: var(--muted);
+  }
+  .turn.mine {
+    align-self: flex-end;
+    background: var(--mine);
+    border-radius: 14px 14px 4px 14px;
+    padding: 10px 14px;
+  }
+  .note {
+    align-self: center;
+    font-size: 0.85rem;
+    color: var(--danger);
+    text-align: center;
+    max-width: 90%;
+  }
+  .suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 16px;
+  }
+  .suggestions button {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .suggestions button:hover {
+    border-color: var(--brass);
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 32px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  form {
+    display: flex;
+    gap: 8px;
+    padding-block: 8px 16px;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  #text {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--ink);
+  }
+  #text:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 2px;
+  }
+  .bell {
+    background: var(--brass);
+    color: var(--brass-ink);
+    border: none;
+    border-radius: 12px;
+    padding: 0 16px;
+    min-height: 46px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .bell:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  #mic {
+    width: 46px;
+    padding: 0;
+    font-size: 1.1rem;
+  }
+  #mic.on {
+    animation: breathe 1.2s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    50% {
+      opacity: 0.5;
+    }
+  }
+  details.voice {
+    border-bottom: 1px solid var(--line);
+    padding-block: 8px;
+  }
+  details.voice summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .voice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px 16px;
+    padding-block: 12px 4px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .field select,
+  .field input[type="range"] {
+    width: 100%;
+  }
+  .field select {
+    font: inherit;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 8px;
+  }
+  .field output {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  select:focus-visible,
+  input[type="range"]:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 2px;
+  }
+  .hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+    text-align: center;
+    padding-bottom: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #mic.on {
+      animation: none;
+    }
+  }
+</style>
+
+<div class="app">
+  <header>
+    <h1>Alfred</h1>
+    <span class="tag">a seu serviço</span>
+    <div class="controls">
+      <label class="chip-toggle" for="speak"><input type="checkbox" id="speak" checked /> Falar respostas</label>
+      <button class="ghost" id="reset" type="button">Nova conversa</button>
+    </div>
+  </header>
+
+  <details class="voice" id="voicePanel">
+    <summary>Ajustar a voz</summary>
+    <div class="voice-grid">
+      <label class="field" for="voice">
+        Voz
+        <select id="voice"></select>
+      </label>
+      <label class="field" for="rate">
+        <span>Velocidade <output id="rateOut"></output></span>
+        <input type="range" id="rate" min="0.7" max="1.4" step="0.05" />
+      </label>
+      <label class="field" for="pitch">
+        <span>Tom <output id="pitchOut"></output></span>
+        <input type="range" id="pitch" min="0.5" max="1.3" step="0.05" />
+      </label>
+      <div class="field">
+        <span>&nbsp;</span>
+        <div class="row">
+          <button class="ghost" id="testVoice" type="button">Testar voz</button>
+          <button class="ghost" id="resetVoice" type="button">Padrão do Alfred</button>
+        </div>
+      </div>
+    </div>
+  </details>
+
+  <main id="log" aria-live="polite"></main>
+
+  <div class="status" id="statusRow" hidden>
+    <span id="status">Alfred está pensando…</span>
+    <button class="ghost" id="stop" type="button">Parar</button>
+  </div>
+
+  <form id="form">
+    <button class="ghost" id="mic" type="button" title="Falar" aria-label="Falar" hidden>🎙</button>
+    <input id="text" type="text" placeholder="Escreva ou dite…" autocomplete="off" />
+    <button class="bell" id="send" type="submit">Enviar</button>
+  </form>
+  <p class="hint" id="hint">No celular, toque no 🎤 do teclado para ditar a pergunta.</p>
+</div>
+
+<script type="module">
+  import {
+    VOICE_DEFAULTS,
+    VOICE_TEST_LINE,
+    createChunker,
+    createEarcons,
+    createSpeaker,
+  } from "./voice.mjs";
+
+  const $ = (id) => document.getElementById(id);
+  const log = $("log");
+  const MAX_TURNS = 30;
+  const SUGGESTIONS = [
+    "Que dia é hoje?",
+    "Me ajude a organizar o meu dia",
+    "Me conte uma curiosidade rápida",
+    "Sugira um jantar fácil para hoje",
+  ];
+
+  const store = {
+    get(key, fallback) {
+      try {
+        const raw = localStorage.getItem("alfred:" + key);
+        return raw === null ? fallback : JSON.parse(raw);
+      } catch {
+        return fallback;
+      }
+    },
+    set(key, value) {
+      try {
+        localStorage.setItem("alfred:" + key, JSON.stringify(value));
+      } catch {}
+    },
+  };
+
+  let turns = store.get("turns", []);
+  let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice", {}), engine: "browser" };
+  let sample = null;
+  let ctl = null;
+  let busy = false;
+  let unavailable = false;
+  $("speak").checked = store.get("speak", true);
+
+  const speaker = createSpeaker({ getSettings: () => voiceSettings });
+  const earcons = createEarcons();
+
+  function rules() {
+    const now = new Date().toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" });
+    return [
+      "Você é Alfred, mordomo e assistente pessoal: educado, prestativo, discreto e com um leve",
+      "humor britânico. Responda em português do Brasil, a menos que eu fale outro idioma.",
+      "Suas respostas são lidas em voz alta: seja conciso (1 a 4 frases, salvo quando eu",
+      "pedir detalhes), escreva frases completas e naturais de se ouvir, sem markdown, listas,",
+      "emojis, símbolos ou blocos de código; escreva números e siglas como se fala. Não invente",
+      "fatos; diga quando não souber. Você não tem acesso à internet nem à minha agenda.",
+      `Data e hora atuais: ${now}.`,
+    ].join(" ");
+  }
+
+  function addTurn(kind, text) {
+    const el = document.createElement("div");
+    el.className = "turn " + kind;
+    el.textContent = text;
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  function addNote(text) {
+    const el = document.createElement("div");
+    el.className = "note";
+    el.textContent = text;
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function render() {
+    log.innerHTML = "";
+    if (turns.length === 0) {
+      addTurn("alfred", "Boa noite. Em que posso ser útil?");
+      const wrap = document.createElement("div");
+      wrap.className = "suggestions";
+      for (const s of SUGGESTIONS) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = s;
+        b.addEventListener("click", () => ask(s));
+        wrap.appendChild(b);
+      }
+      log.appendChild(wrap);
+    }
+    for (const t of turns) addTurn(t.role === "user" ? "mine" : "alfred", t.content);
+  }
+
+  // ---------- Painel de voz ----------
+  function syncVoiceUi() {
+    $("voice").value = voiceSettings.voiceURI;
+    $("rate").value = voiceSettings.rate;
+    $("pitch").value = voiceSettings.pitch;
+    $("rateOut").textContent = Number(voiceSettings.rate).toFixed(2) + "×";
+    $("pitchOut").textContent = Number(voiceSettings.pitch).toFixed(2);
+  }
+  function saveVoice(patch) {
+    voiceSettings = { ...voiceSettings, ...patch };
+    store.set("voice", voiceSettings);
+    syncVoiceUi();
+  }
+  speaker.onVoices((voices) => {
+    const select = $("voice");
+    select.innerHTML = "";
+    select.add(new Option("Automática (melhor disponível)", ""));
+    for (const v of voices) select.add(new Option(`${v.name} (${v.lang})`, v.voiceURI));
+    syncVoiceUi();
+  });
+  if (!speaker.available) {
+    $("speak").closest("label").hidden = true;
+    $("voicePanel").hidden = true;
+  }
+  $("voice").addEventListener("change", (e) => saveVoice({ voiceURI: e.target.value }));
+  $("rate").addEventListener("input", (e) => saveVoice({ rate: Number(e.target.value) }));
+  $("pitch").addEventListener("input", (e) => saveVoice({ pitch: Number(e.target.value) }));
+  $("testVoice").addEventListener("click", () => {
+    speaker.cancel();
+    speaker.sayAll(VOICE_TEST_LINE);
+  });
+  $("resetVoice").addEventListener("click", () => saveVoice({ ...VOICE_DEFAULTS, engine: "browser" }));
+  syncVoiceUi();
+
+  // ---------- Conversa ----------
+  const ERRORS = {
+    not_granted: "Você não permitiu que esta página use o Claude. Recarregue para permitir.",
+    sampling_disabled: "O Claude não está disponível nesta conta.",
+    rate_limited: "Muitas perguntas seguidas. Espere um pouco e tente de novo.",
+    session_expired: "Sua sessão expirou. Entre no claude.ai de novo.",
+    refused: "Alfred preferiu não responder a isso. Tente perguntar de outro jeito.",
+    empty_completion: "Alfred ficou sem palavras. Tente reformular.",
+    prompt_too_large: "A conversa ficou longa demais. Toque em Nova conversa.",
+  };
+  const PERMANENT = new Set([
+    "not_granted",
+    "sampling_disabled",
+    "not_declared",
+    "capability_disabled",
+    "capability_removed",
+  ]);
+
+  function syncStatus() {
+    $("statusRow").hidden = !(busy || speaker.speaking);
+    $("status").textContent = busy ? "Alfred está pensando…" : "Alfred está falando…";
+  }
+  function setBusy(on) {
+    busy = on;
+    $("send").disabled = on || unavailable;
+    syncStatus();
+  }
+  speaker.onChange(syncStatus);
+
+  async function ask(text) {
+    text = (text || "").trim();
+    if (!text || busy) return;
+    speaker.unlock();
+    if (!sample) {
+      addNote(unavailable ? "O Claude não está disponível aqui." : "Ainda conectando ao Claude… tente em um instante.");
+      return;
+    }
+    speaker.cancel();
+    turns.push({ role: "user", content: text });
+    render();
+    const bubble = addTurn("alfred thinking", "…");
+    setBusy(true);
+    ctl = new AbortController();
+    const chunker = createChunker();
+    const say = (pieces) => {
+      if ($("speak").checked) for (const p of pieces) speaker.say(p);
+    };
+    try {
+      const recent = turns.slice(-MAX_TURNS);
+      const { text: answer } = await sample([{ role: "user", content: rules() }, ...recent], {
+        cache: false,
+        modelTier: "quick",
+        signal: ctl.signal,
+        onText: ({ text: full, delta }) => {
+          bubble.classList.remove("thinking");
+          bubble.textContent = full;
+          log.scrollTop = log.scrollHeight;
+          say(chunker.push(delta));
+        },
+      });
+      say(chunker.flush());
+      turns.push({ role: "assistant", content: answer });
+      store.set("turns", turns.slice(-MAX_TURNS));
+    } catch (e) {
+      const code = e && e.code;
+      if (e && e.text && code !== "refused") {
+        turns.push({ role: "assistant", content: e.text });
+        store.set("turns", turns.slice(-MAX_TURNS));
+      } else {
+        turns.pop();
+        bubble.remove();
+        if (code === "refused") speaker.cancel();
+      }
+      if (code !== "cancelled") addNote(ERRORS[code] || "A resposta foi interrompida. Tente de novo.");
+      if (PERMANENT.has(code)) unavailable = true;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  $("stop").addEventListener("click", () => {
+    speaker.cancel();
+    ctl && ctl.abort();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") speaker.cancel();
+  });
+  document.addEventListener("pointerdown", () => speaker.unlock(), { once: true });
+  $("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = $("text").value;
+    $("text").value = "";
+    ask(text);
+  });
+  $("reset").addEventListener("click", () => {
+    speaker.cancel();
+    ctl && ctl.abort();
+    turns = [];
+    store.set("turns", turns);
+    render();
+  });
+  $("speak").addEventListener("change", (e) => {
+    store.set("speak", e.target.checked);
+    if (!e.target.checked) speaker.cancel();
+  });
+
+  // ---------- Microfone (o app do Claude costuma bloquear; o ditado do teclado sempre funciona) ----------
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (Recognition) {
+    let rec = null;
+    $("mic").hidden = false;
+    const blocked = () => {
+      $("mic").hidden = true;
+      addNote("O app do Claude não libera o microfone nesta página. Use o 🎤 do teclado, ou o Alfred do seu PC.");
+    };
+    $("mic").addEventListener("click", () => {
+      if (rec) return rec.stop();
+      speaker.cancel();
+      try {
+        rec = new Recognition();
+      } catch {
+        return blocked();
+      }
+      rec.lang = "pt-BR";
+      rec.interimResults = true;
+      let finalText = "";
+      rec.onresult = (e) => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+          else interim += e.results[i][0].transcript;
+        }
+        $("text").value = finalText + interim;
+      };
+      rec.onerror = (e) => {
+        if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) blocked();
+      };
+      rec.onend = () => {
+        rec = null;
+        $("mic").classList.remove("on");
+        const text = $("text").value;
+        $("text").value = "";
+        if (text.trim()) {
+          earcons.done();
+          ask(text);
+        }
+      };
+      try {
+        rec.start();
+        earcons.listen();
+        $("mic").classList.add("on");
+      } catch {
+        rec = null;
+        blocked();
+      }
+    });
+  }
+
+  render();
+
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("sample").then((fn) => {
+      sample = fn;
+      if (!fn) {
+        unavailable = true;
+        $("send").disabled = true;
+        addNote("Abra esta página dentro do Claude para conversar com o Alfred.");
+      }
+    });
+  } else {
+    unavailable = true;
+    $("send").disabled = true;
+    addNote("Abra esta página dentro do Claude para conversar com o Alfred.");
+  }
+</script>

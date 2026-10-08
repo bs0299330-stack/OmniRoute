@@ -2,170 +2,326 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Alfred</title>
     <style>
       :root {
-        --bg: #f6f4ef;
-        --panel: #ffffff;
-        --text: #1d1b16;
-        --muted: #6b665c;
-        --accent: #7a5c1e;
-        --user: #e9e2d0;
-        --border: #ddd6c6;
+        --bg: #eef0ec;
+        --surface: #ffffff;
+        --ink: #17222b;
+        --muted: #5c6870;
+        --brass: #8a6a22;
+        --brass-ink: #ffffff;
+        --mine: #dfe5e1;
+        --line: #cfd6d1;
+        --danger: #a3302a;
+        --live: #2f7a4f;
+        --serif: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+        --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #15140f;
-          --panel: #1f1d17;
-          --text: #ece6d8;
-          --muted: #a29b8b;
-          --accent: #d9b56a;
-          --user: #2e2a20;
-          --border: #37332a;
+          --bg: #10161b;
+          --surface: #182128;
+          --ink: #e4e8e5;
+          --muted: #94a1a8;
+          --brass: #d2ae5e;
+          --brass-ink: #10161b;
+          --mine: #22303a;
+          --line: #2b3943;
+          --danger: #ef8a83;
+          --live: #6fcf97;
+          color-scheme: dark;
         }
       }
       * {
         box-sizing: border-box;
       }
+      [hidden] {
+        display: none !important;
+      }
+      html,
       body {
+        height: 100%;
         margin: 0;
+      }
+      body {
         background: var(--bg);
-        color: var(--text);
-        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--ink);
+        font: 16px/1.55 var(--sans);
+      }
+      .app {
+        height: 100%;
         display: flex;
         flex-direction: column;
-        height: 100dvh;
+        max-width: 760px;
+        margin: 0 auto;
+        padding-inline: 16px;
       }
       header {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
+        gap: 10px 14px;
+        flex-wrap: wrap;
+        padding-block: 14px 10px;
+        border-bottom: 1px solid var(--line);
       }
-      header h1 {
-        font-size: 1.15rem;
+      h1 {
+        font: 600 1.9rem/1 var(--serif);
         margin: 0;
-        flex: 1;
       }
-      header small {
+      #model {
         color: var(--muted);
-      }
-      #log {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        max-width: 760px;
-        width: 100%;
-        margin: 0 auto;
-      }
-      .msg {
-        padding: 10px 14px;
-        border-radius: 14px;
-        max-width: 85%;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-      }
-      .user {
-        background: var(--user);
-        align-self: flex-end;
-      }
-      .assistant {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        align-self: flex-start;
-      }
-      .error {
-        color: #b3261e;
-        align-self: center;
-        font-size: 0.9rem;
-      }
-      #status {
-        text-align: center;
-        color: var(--muted);
-        font-size: 0.9rem;
-        min-height: 1.4em;
-        padding: 0 16px;
-      }
-      form {
-        display: flex;
-        gap: 8px;
-        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-        max-width: 760px;
-        width: 100%;
-        margin: 0 auto;
-      }
-      input[type="text"] {
+        font-size: 0.8rem;
         flex: 1;
         min-width: 0;
-        padding: 12px 14px;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: var(--panel);
-        color: var(--text);
-        font-size: 1rem;
       }
-      button {
-        border: 1px solid var(--border);
-        background: var(--panel);
-        color: var(--text);
-        border-radius: 999px;
-        padding: 0 14px;
-        min-height: 44px;
-        font-size: 1rem;
-        cursor: pointer;
-      }
-      #mic {
-        width: 56px;
-        font-size: 1.4rem;
-        background: var(--accent);
-        color: var(--bg);
-        border: none;
-      }
-      #mic.listening {
-        animation: pulse 1s infinite;
-      }
-      @keyframes pulse {
-        50% {
-          opacity: 0.55;
-        }
+      .toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 14px;
       }
       label.toggle {
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: 6px;
         color: var(--muted);
         font-size: 0.85rem;
+        cursor: pointer;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 6px 12px;
+        min-height: 40px;
+      }
+      button:hover {
+        border-color: var(--brass);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--brass);
+        outline-offset: 2px;
+      }
+      details.voice {
+        border-bottom: 1px solid var(--line);
+        padding-block: 8px;
+      }
+      details.voice summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .voice-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px 16px;
+        padding-block: 12px 4px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .field select,
+      .field input[type="range"] {
+        width: 100%;
+      }
+      select {
+        font: inherit;
+        color: var(--ink);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 8px;
+      }
+      output {
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+      }
+      #log {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding-block: 18px;
+      }
+      .msg {
+        max-width: 88%;
+        min-width: 0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .assistant {
+        align-self: flex-start;
+        font: italic 500 1.25rem/1.4 var(--serif);
+        padding-left: 14px;
+        border-left: 2px solid var(--brass);
+      }
+      .user {
+        align-self: flex-end;
+        background: var(--mine);
+        border-radius: 14px 14px 4px 14px;
+        padding: 10px 14px;
+      }
+      .error {
+        align-self: center;
+        color: var(--danger);
+        font-size: 0.9rem;
+        text-align: center;
+      }
+      #status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 28px;
+        color: var(--muted);
+        font-size: 0.9rem;
+        text-align: center;
+      }
+      #status .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--live);
+        animation: pulse 1.1s ease-in-out infinite;
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        padding-block: 8px 16px;
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      }
+      #text {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--ink);
+      }
+      #mic {
+        width: 54px;
+        font-size: 1.3rem;
+        background: var(--brass);
+        color: var(--brass-ink);
+        border: none;
+      }
+      #mic.listening {
+        background: var(--live);
+        animation: pulse 1.1s ease-in-out infinite;
+      }
+      #send {
+        background: var(--brass);
+        color: var(--brass-ink);
+        border: none;
+        font-weight: 600;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-align: center;
+        margin: 0 0 6px;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.5;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #mic.listening,
+        #status .dot {
+          animation: none;
+        }
       }
     </style>
   </head>
   <body>
-    <header>
-      <h1>🎩 Alfred <small id="model"></small></h1>
-      <label class="toggle" title="Fica ouvindo e responde quando você diz 'Alfred'">
-        <input type="checkbox" id="wake" /> Modo “Alfred…”
-      </label>
-      <label class="toggle"><input type="checkbox" id="speak" checked /> Voz</label>
-      <button id="reset" type="button" title="Nova conversa">↺</button>
-    </header>
+    <div class="app">
+      <header>
+        <h1>Alfred</h1>
+        <span id="model"></span>
+        <div class="toggles">
+          <label class="toggle" for="wake" title="Fica ouvindo e responde quando você diz “Alfred”">
+            <input type="checkbox" id="wake" /> Sempre ouvindo
+          </label>
+          <label class="toggle" for="followup" title="Depois de responder, já escuta a sua próxima frase">
+            <input type="checkbox" id="followup" checked /> Modo conversa
+          </label>
+          <label class="toggle" for="speak"><input type="checkbox" id="speak" checked /> Voz</label>
+        </div>
+        <button id="reset" type="button" title="Nova conversa">Nova conversa</button>
+      </header>
 
-    <main id="log" aria-live="polite"></main>
-    <div id="status"></div>
+      <details class="voice" id="voicePanel">
+        <summary>Ajustar a voz</summary>
+        <div class="voice-grid">
+          <label class="field" for="engine" id="engineField" hidden>
+            Motor
+            <select id="engine">
+              <option value="browser">Voz do navegador</option>
+              <option value="neural">Voz neural (OmniRoute)</option>
+            </select>
+          </label>
+          <label class="field" for="voice" id="voiceField">
+            Voz
+            <select id="voice"></select>
+          </label>
+          <label class="field" for="rate">
+            <span>Velocidade <output id="rateOut"></output></span>
+            <input type="range" id="rate" min="0.7" max="1.4" step="0.05" />
+          </label>
+          <label class="field" for="pitch" id="pitchField">
+            <span>Tom <output id="pitchOut"></output></span>
+            <input type="range" id="pitch" min="0.5" max="1.3" step="0.05" />
+          </label>
+          <div class="field">
+            &nbsp;
+            <div class="toggles">
+              <button id="testVoice" type="button">Testar voz</button>
+              <button id="resetVoice" type="button">Padrão do Alfred</button>
+            </div>
+          </div>
+        </div>
+      </details>
 
-    <form id="form">
-      <button id="mic" type="button" title="Falar (ou segure Espaço)">🎙️</button>
-      <input id="text" type="text" placeholder="Fale ou digite…" autocomplete="off" />
-      <button type="submit">Enviar</button>
-    </form>
+      <main id="log" aria-live="polite"></main>
+      <div id="status" role="status"></div>
 
-    <script>
+      <form id="form">
+        <button id="mic" type="button" title="Falar (ou segure Espaço)" aria-label="Falar">🎙</button>
+        <input id="text" type="text" placeholder="Fale ou digite…" autocomplete="off" />
+        <button id="send" type="submit">Enviar</button>
+      </form>
+      <p class="hint">Espaço: falar · Esc: interromper · Diga “Alfred, …” com “Sempre ouvindo” ligado</p>
+    </div>
+
+    <script type="module">
+      import {
+        VOICE_DEFAULTS,
+        VOICE_TEST_LINE,
+        createChunker,
+        createEarcons,
+        createSpeaker,
+        matchWakeWord,
+      } from "./voice.mjs";
+
       const $ = (id) => document.getElementById(id);
       const log = $("log");
-      const statusEl = $("status");
       const store = {
         get(key, fallback) {
           try {
@@ -183,11 +339,41 @@
       };
 
       let history = store.get("history", []);
-      let busy = false;
       let token = store.get("token", "");
+      let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice", {}) };
+      let busy = false;
+      let ttsAvailable = false;
+      let lastViaVoice = false;
+      for (const id of ["wake", "followup", "speak"]) {
+        $(id).checked = store.get("toggle:" + id, $(id).checked);
+      }
 
-      function setStatus(text) {
-        statusEl.textContent = text || "";
+      const authHeaders = () => (token ? { authorization: "Bearer " + token } : {});
+      const earcons = createEarcons();
+      const speaker = createSpeaker({
+        getSettings: () => voiceSettings,
+        fetchNeural: async (text) => {
+          const res = await fetch("api/tts", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ text }),
+          });
+          if (!res.ok) throw new Error("tts " + res.status);
+          return res.blob();
+        },
+        onError: () => setStatus("A voz neural falhou; usando a voz do navegador."),
+      });
+
+      // ---------- Interface ----------
+      function setStatus(text, live = false) {
+        const el = $("status");
+        el.textContent = "";
+        if (live) {
+          const dot = document.createElement("span");
+          dot.className = "dot";
+          el.append(dot);
+        }
+        if (text) el.append(text);
       }
 
       function addBubble(role, text) {
@@ -205,60 +391,84 @@
         for (const m of history) addBubble(m.role, m.content);
       }
 
-      // ---------- Voz (fala) ----------
-      const synth = window.speechSynthesis;
-      let voice = null;
-      function pickVoice() {
-        const voices = synth ? synth.getVoices() : [];
-        voice =
-          voices.find((v) => v.lang === "pt-BR" && /google|natural|online/i.test(v.name)) ||
-          voices.find((v) => v.lang === "pt-BR") ||
-          voices.find((v) => v.lang.startsWith("pt")) ||
-          null;
+      // ---------- Painel de voz ----------
+      function syncVoiceUi() {
+        $("engine").value = voiceSettings.engine;
+        $("rate").value = voiceSettings.rate;
+        $("pitch").value = voiceSettings.pitch;
+        $("rateOut").textContent = Number(voiceSettings.rate).toFixed(2) + "×";
+        $("pitchOut").textContent = Number(voiceSettings.pitch).toFixed(2);
+        const neural = voiceSettings.engine === "neural" && ttsAvailable;
+        $("voiceField").hidden = neural;
+        $("pitchField").hidden = neural;
+        $("voice").value = voiceSettings.voiceURI;
       }
-      if (synth) {
-        pickVoice();
-        synth.onvoiceschanged = pickVoice;
+      function saveVoice(patch) {
+        voiceSettings = { ...voiceSettings, ...patch };
+        store.set("voice", voiceSettings);
+        syncVoiceUi();
       }
-      function speak(text) {
-        if (!synth || !$("speak").checked || !text.trim()) return;
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = "pt-BR";
-        if (voice) u.voice = voice;
-        u.rate = 1.05;
-        u.onend = () => {
-          if (!synth.speaking) resumeWakeListening();
-        };
-        synth.speak(u);
-      }
-      function stopSpeaking() {
-        if (synth) synth.cancel();
-      }
+      speaker.onVoices((voices) => {
+        const select = $("voice");
+        select.innerHTML = "";
+        const auto = new Option("Automática (melhor disponível)", "");
+        select.add(auto);
+        for (const v of voices) select.add(new Option(`${v.name} (${v.lang})`, v.voiceURI));
+        if (voices.length === 0) {
+          select.add(new Option("Nenhuma voz em português neste navegador", "", false, false));
+        }
+        syncVoiceUi();
+      });
+      $("engine").addEventListener("change", (e) => saveVoice({ engine: e.target.value }));
+      $("voice").addEventListener("change", (e) => saveVoice({ voiceURI: e.target.value }));
+      $("rate").addEventListener("input", (e) => saveVoice({ rate: Number(e.target.value) }));
+      $("pitch").addEventListener("input", (e) => saveVoice({ pitch: Number(e.target.value) }));
+      $("testVoice").addEventListener("click", () => {
+        speaker.cancel();
+        speaker.sayAll(VOICE_TEST_LINE);
+      });
+      $("resetVoice").addEventListener("click", () => {
+        saveVoice({ ...VOICE_DEFAULTS, engine: ttsAvailable ? "neural" : "browser" });
+      });
+
+      speaker.onChange((speaking) => {
+        if (speaking) {
+          stopListening(); // não ouvir a própria voz
+          if (!busy) setStatus("Alfred está falando — Esc para interromper");
+        } else {
+          if (!busy && !listening) setStatus("");
+          scheduleListening();
+        }
+      });
 
       // ---------- Conversa ----------
-      async function ask(text) {
+      async function ask(text, { viaVoice = false } = {}) {
         text = text.trim();
         if (!text || busy) return;
         busy = true;
-        stopSpeaking();
+        lastViaVoice = viaVoice;
+        stopListening();
+        speaker.cancel();
+        const chunker = createChunker();
+        const say = (pieces) => {
+          if ($("speak").checked) for (const p of pieces) speaker.say(p);
+        };
+
         history.push({ role: "user", content: text });
         addBubble("user", text);
         const bubble = addBubble("assistant", "…");
         setStatus("Alfred está pensando…");
 
         let full = "";
-        let pending = ""; // texto ainda não falado (fala frase a frase)
         try {
           const res = await fetch("api/chat", {
             method: "POST",
-            headers: {
-              "content-type": "application/json",
-              ...(token ? { authorization: "Bearer " + token } : {}),
-            },
+            headers: { "content-type": "application/json", ...authHeaders() },
             body: JSON.stringify({ messages: history }),
           });
           if (res.status === 401) {
-            token = prompt("Token de acesso do Alfred:") || "";
+            const t = window.prompt("Token de acesso do Alfred:") || "";
+            token = t;
             store.set("token", token);
             throw new Error("Token inválido. Tente de novo.");
           }
@@ -277,144 +487,225 @@
             buf = events.pop();
             for (const ev of events) {
               const data = ev.replace(/^data:\s*/, "");
-              if (data === "[DONE]") continue;
+              if (!data || data === "[DONE]") continue;
               const msg = JSON.parse(data);
               if (msg.error) throw new Error(msg.error);
               full += msg.text;
-              pending += msg.text;
               bubble.textContent = full;
               log.scrollTop = log.scrollHeight;
-              // Fala cada frase completa assim que chega, para responder mais rápido.
-              const m = pending.match(/^[\s\S]*?[.!?…](\s|$)/);
-              if (m) {
-                speak(m[0]);
-                pending = pending.slice(m[0].length);
-              }
+              say(chunker.push(msg.text));
             }
           }
-          speak(pending);
+          say(chunker.flush());
           history.push({ role: "assistant", content: full || "(sem resposta)" });
           store.set("history", history.slice(-40));
-          setStatus("");
+          setStatus(speaker.speaking ? "Alfred está falando — Esc para interromper" : "");
         } catch (err) {
           history.pop();
           bubble.remove();
           addBubble("error", err.message);
           setStatus("");
+          lastViaVoice = false;
         } finally {
           busy = false;
-          if (!synth || !synth.speaking) resumeWakeListening();
+          scheduleListening();
         }
       }
 
-      // ---------- Reconhecimento de voz ----------
+      // ---------- Microfone ----------
+      // Estados: parado → "command" (uma frase) ou "wake" (espera “Alfred”).
+      // Enquanto Alfred fala, o microfone fica fechado para ele não ouvir a própria voz.
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       let rec = null;
-      let listening = false;
-      let mode = "push"; // "push" = clique no microfone; "wake" = espera a palavra "Alfred"
-      let followUp = false;
+      let listening = null; // "command" | "wake" | null
+      let scheduled = null;
+      let quickEnds = 0;
 
-      function startListening(newMode) {
-        if (!Recognition) {
-          setStatus("Este navegador não reconhece voz — use Chrome/Edge, ou digite.");
-          return;
-        }
-        if (listening) return;
-        mode = newMode;
-        stopSpeaking();
-        rec = new Recognition();
-        rec.lang = "pt-BR";
-        rec.interimResults = true;
-        rec.continuous = mode === "wake";
-        let finalText = "";
-        rec.onresult = (e) => {
-          let interim = "";
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            const r = e.results[i];
-            if (r.isFinal) finalText += r[0].transcript;
-            else interim += r[0].transcript;
-          }
-          if (mode === "push") {
-            $("text").value = finalText + interim;
-            return;
-          }
-          // Modo palavra-chave: só reage se a frase contém "Alfred".
-          const said = finalText.trim();
-          const hit = said.match(/\balfred\b[,!.]?\s*(.*)$/i);
-          if (hit) {
-            rec.stop();
-            if (hit[1].trim()) ask(hit[1]);
-            else {
-              // Só disse "Alfred": responde e escuta a próxima frase como pergunta.
-              followUp = true;
-              speak("Pois não?");
-            }
-          }
-          finalText = "";
-        };
-        rec.onerror = (e) => {
-          if (e.error === "not-allowed") {
-            setStatus("Permita o uso do microfone (a página precisa estar em localhost ou https).");
-            $("wake").checked = false;
-          }
-        };
-        rec.onend = () => {
-          listening = false;
-          $("mic").classList.remove("listening");
-          if (mode === "push") {
-            setStatus("");
-            const text = $("text").value;
-            $("text").value = "";
-            if (text.trim()) ask(text);
-            else resumeWakeListening();
-          } else {
-            resumeWakeListening();
-          }
-        };
-        rec.start();
-        listening = true;
-        $("mic").classList.add("listening");
-        setStatus(mode === "wake" ? "Diga “Alfred, …”" : "Ouvindo…");
+      if (!Recognition) {
+        $("mic").disabled = true;
+        $("mic").title = "Este navegador não reconhece voz — use Chrome ou Edge";
+        $("wake").disabled = true;
       }
 
-      function resumeWakeListening() {
-        if ($("wake").checked && !busy && !listening && !(synth && synth.speaking)) {
-          const next = followUp ? "push" : "wake";
-          followUp = false;
-          setTimeout(() => startListening(next), 300);
+      function stopListening() {
+        clearTimeout(scheduled);
+        scheduled = null;
+        if (!rec) return;
+        const r = rec;
+        rec = null;
+        listening = null;
+        r.onend = null;
+        r.onresult = null;
+        r.onerror = null;
+        try {
+          r.abort();
+        } catch {}
+        $("mic").classList.remove("listening");
+      }
+
+      function listen(mode) {
+        if (!Recognition) return;
+        stopListening();
+        const r = new Recognition();
+        r.lang = "pt-BR";
+        r.interimResults = true;
+        r.continuous = mode === "wake";
+        r.maxAlternatives = 1;
+        const startedAt = Date.now();
+        let finalText = "";
+        let fired = false;
+
+        r.onresult = (e) => {
+          let interim = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const res = e.results[i];
+            if (res.isFinal) finalText += res[0].transcript + " ";
+            else interim += res[0].transcript;
+          }
+          if (mode === "command") {
+            $("text").value = (finalText + interim).trim();
+            return;
+          }
+          // wake: só reage a frases finais que contêm “Alfred”; o resto é descartado.
+          if (fired) return;
+          const heard = matchWakeWord(finalText);
+          if (!heard) {
+            finalText = "";
+            return;
+          }
+          fired = true;
+          stopListening();
+          if (heard.command) {
+            ask(heard.command, { viaVoice: true });
+          } else {
+            earcons.listen();
+            listen("command");
+          }
+        };
+        r.onerror = (e) => {
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            $("wake").checked = false;
+            store.set("toggle:wake", false);
+            setStatus("Permita o microfone (cadeado na barra de endereço). A página precisa estar em localhost ou https.");
+          } else if (e.error === "audio-capture") {
+            setStatus("Nenhum microfone encontrado.");
+          }
+        };
+        r.onend = () => {
+          if (rec !== r) return;
+          rec = null;
+          listening = null;
+          $("mic").classList.remove("listening");
+          if (mode === "command") {
+            const text = $("text").value.trim();
+            $("text").value = "";
+            if (text) {
+              earcons.done();
+              ask(text, { viaVoice: true });
+              return;
+            }
+            setStatus("");
+          }
+          // Evita loop quente se o reconhecimento cair logo ao abrir (sem rede, sem permissão).
+          quickEnds = Date.now() - startedAt < 1500 ? quickEnds + 1 : 0;
+          if (quickEnds >= 3) {
+            quickEnds = 0;
+            $("wake").checked = false;
+            setStatus("O reconhecimento de voz parou. Toque no microfone para tentar de novo.");
+            return;
+          }
+          scheduleListening();
+        };
+
+        try {
+          r.start();
+        } catch {
+          return;
         }
+        rec = r;
+        listening = mode;
+        if (mode === "command") {
+          $("mic").classList.add("listening");
+          setStatus("Ouvindo…", true);
+        } else {
+          setStatus("Diga “Alfred, …”", true);
+        }
+      }
+
+      // Decide o que o microfone faz quando Alfred termina de falar.
+      function scheduleListening() {
+        clearTimeout(scheduled);
+        scheduled = setTimeout(() => {
+          scheduled = null;
+          if (busy || speaker.speaking || rec) return;
+          if (lastViaVoice && $("followup").checked) {
+            lastViaVoice = false;
+            earcons.listen();
+            return listen("command");
+          }
+          lastViaVoice = false;
+          if ($("wake").checked) listen("wake");
+        }, 200);
+      }
+
+      function interrupt() {
+        speaker.cancel();
+        lastViaVoice = false;
+        if (!busy) setStatus("");
       }
 
       $("mic").addEventListener("click", () => {
-        if (listening) rec.stop();
-        else startListening("push");
+        speaker.unlock();
+        if (listening === "command") {
+          rec.stop(); // envia o que já ouviu
+          return;
+        }
+        speaker.cancel();
+        earcons.listen();
+        listen("command");
       });
       $("wake").addEventListener("change", (e) => {
-        if (e.target.checked) startListening("wake");
-        else if (listening) {
-          mode = "push-off";
-          rec.stop();
+        store.set("toggle:wake", e.target.checked);
+        if (e.target.checked) scheduleListening();
+        else if (listening === "wake") {
+          stopListening();
           setStatus("");
         }
       });
+      for (const id of ["followup", "speak"]) {
+        $(id).addEventListener("change", (e) => {
+          store.set("toggle:" + id, e.target.checked);
+          if (id === "speak" && !e.target.checked) speaker.cancel();
+        });
+      }
       document.addEventListener("keydown", (e) => {
-        if (e.code === "Space" && document.activeElement !== $("text") && !e.repeat) {
+        if (e.key === "Escape") interrupt();
+        if (e.code === "Space" && document.activeElement === document.body && !e.repeat) {
           e.preventDefault();
-          if (!listening) startListening("push");
+          speaker.unlock();
+          speaker.cancel();
+          if (listening !== "command") {
+            earcons.listen();
+            listen("command");
+          }
         }
       });
       document.addEventListener("keyup", (e) => {
-        if (e.code === "Space" && listening && mode === "push") rec.stop();
+        if (e.code === "Space" && listening === "command" && document.activeElement === document.body) {
+          rec.stop();
+        }
       });
+      document.addEventListener("pointerdown", () => speaker.unlock(), { once: true });
 
       $("form").addEventListener("submit", (e) => {
         e.preventDefault();
+        speaker.unlock();
         const text = $("text").value;
         $("text").value = "";
         ask(text);
       });
       $("reset").addEventListener("click", () => {
-        stopSpeaking();
+        interrupt();
         history = [];
         store.set("history", history);
         render();
@@ -422,9 +713,19 @@
 
       fetch("api/health")
         .then((r) => r.json())
-        .then((h) => ($("model").textContent = "· " + h.model))
+        .then((h) => {
+          $("model").textContent = "cérebro: " + h.model;
+          ttsAvailable = !!h.tts;
+          $("engineField").hidden = !ttsAvailable;
+          if (ttsAvailable && !store.get("voice", null)) saveVoice({ engine: "neural" });
+          if (!ttsAvailable && voiceSettings.engine === "neural") saveVoice({ engine: "browser" });
+          syncVoiceUi();
+        })
         .catch(() => setStatus("Servidor do Alfred offline."));
+
+      syncVoiceUi();
       render();
+      if ($("wake").checked) scheduleListening();
     </script>
   </body>
 </html>
