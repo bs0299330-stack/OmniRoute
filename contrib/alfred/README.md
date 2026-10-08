@@ -1,12 +1,14 @@
 # 🎩 Alfred — assistente virtual por voz
 
 Alfred é um assistente pessoal com que você conversa **por voz**, fora do Claude Code, com uma
-interface holográfica (HUD) e três jeitos de usar:
+interface escura (preto, grafite e um toque de amarelo) em que um globo de partículas reage ao que
+ele faz, e três jeitos de usar:
 
 | Onde                   | Como abrir                                   | Microfone            | Voz de IA |
 | ---------------------- | -------------------------------------------- | -------------------- | --------- |
 | Site no seu PC         | `node contrib/alfred/server.mjs`             | sim (Chrome/Edge)    | sim       |
 | Terminal               | `node contrib/alfred/cli.mjs`                | sim (com `sox`)      | sim       |
+| Celular, de qualquer lugar | `node contrib/alfred/server.mjs --tunel` | sim (link https)     | sim       |
 | Dentro do app do Claude | Artifact publicado de `claude/index.html`   | ditado do teclado    | não       |
 
 O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
@@ -71,7 +73,7 @@ e dois Ctrl+C saem.
 | Sintoma                                              | Causa / solução                                                                                                                                     |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "Não é possível acessar esse site" em `localhost`    | O servidor não está rodando **nesse aparelho**. `localhost` é sempre o próprio aparelho: rode o passo 3 no mesmo PC e mantenha o terminal aberto. |
-| Abre no PC mas não no celular                        | O Alfred escuta só no próprio PC por padrão. Veja "Usar no celular" abaixo.                                                                         |
+| Abre no PC mas não no celular                        | Use `node contrib/alfred/server.mjs --tunel` e abra o link no celular. Veja "Falar com o Alfred pelo celular".                                    |
 | `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
 | Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
 | "O Claude Code não está logado"                      | Rode `claude` uma vez no terminal e entre na sua conta.                                                                                            |
@@ -121,17 +123,31 @@ depois vozes masculinas.
 A voz é um personagem original no estilo de um mordomo. Ela não imita a voz de nenhum ator ou
 dublador real.
 
-## Usar no celular / fora de casa
+## Falar com o Alfred pelo celular (com microfone)
 
-O navegador só libera o microfone em `localhost` ou **https**. Para acessar de outro aparelho:
+O navegador do celular só libera o microfone em **https**. O Alfred cria esse link sozinho:
 
-1. Defina um token: `ALFRED_TOKEN=um-segredo-longo` e `ALFRED_HOST=0.0.0.0`. O servidor passa a
-   mostrar também os endereços de rede (`http://192.168.x.x:20140`) — pelo IP só a parte de
-   texto funciona; o microfone exige https.
-2. Publique com https — por exemplo, um túnel (Cloudflare Tunnel, Tailscale Serve, ngrok)
-   apontando para a porta `20140`.
-3. Abra a URL https no celular; o Alfred pede o token na primeira mensagem.
-   No Android/Chrome, "Adicionar à tela inicial" deixa com cara de app.
+1. Instale o **cloudflared** no PC (uma vez): `winget install Cloudflare.cloudflared` no Windows,
+   ou `brew install cloudflared` no Mac.
+2. Inicie o Alfred com `--tunel`:
+
+   ```bash
+   node contrib/alfred/server.mjs --tunel
+   ```
+
+3. Ele mostra um link `https://….trycloudflare.com/#token=…`. Abra esse link no celular (Chrome
+   no Android). A senha vai junto no link, a página guarda e tira da barra de endereço. Toque no
+   🎙 e fale.
+
+Enquanto o link estiver ativo, as rotas `/api/*` exigem a senha. Se `ALFRED_TOKEN` não estiver
+definido, ele gera uma senha nova a cada execução. **Não compartilhe o link**, porque quem tiver o
+link fala com o seu Alfred, usando o seu cérebro e a sua voz de IA. O link fecha quando você
+encerra o Alfred. Sem cloudflared, dá para usar outro túnel https (Tailscale Serve, ngrok)
+apontando para a porta `20140`, com `ALFRED_TOKEN` definido.
+
+**Na página do Claude** o app não deixa a página usar o microfone. Lá, ligue o **Modo ditado**
+(já vem ligado no celular): toque no campo, use o 🎤 do teclado e fale. Quando você para de falar,
+ele envia sozinho.
 
 ## Configuração
 
@@ -147,6 +163,7 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 | `ALFRED_HOST`          | `127.0.0.1`                  | Interface de escuta                              |
 | `ALFRED_PORT`          | `20140`                      | Porta                                            |
 | `ALFRED_TOKEN`         | —                            | Exige `Authorization: Bearer` nas rotas `/api/*` |
+| `ALFRED_TUNNEL`        | —                            | `1` = o mesmo que `--tunel` (link para o celular) |
 | `OPENAI_API_KEY`       | —                            | Liga a voz de IA da OpenAI (gpt-4o-mini-tts)     |
 | `ALFRED_TTS_VOICE`     | `onyx`                       | Voz padrão (OpenAI: onyx, ash, echo, cedar…)     |
 | `ALFRED_TTS_PROVIDER`  | automático                   | `openai`, `omniroute` ou `off`                   |
@@ -170,8 +187,9 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 - `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, OpenAI ou Claude Code, em streaming.
   O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
-- `public/hud.css` + `public/hud.mjs` — o visual holográfico e o núcleo animado que reage ao
-  estado (em espera, ouvindo, processando, falando) e ao volume da voz de IA.
+- `public/hud.css` + `public/hud.mjs` — o visual e o globo de ~700 partículas: gira devagar em
+  espera, fica amarelo e "respira" ouvindo, gira em faixas processando e se agita com a voz
+  falando (pelo volume real da voz de IA, ou pelas palavras da voz do navegador).
 - `server.mjs` — HTTP: serve a página, valida, injeta o prompt de sistema e repassa o stream.
 - `public/voice.mjs` — motor de voz compartilhado: limpeza do texto, divisão em frases, escolha da
   voz, fila de fala (navegador ou neural), palavra de ativação e bipes; testado em

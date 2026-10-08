@@ -1,13 +1,18 @@
-// Alfred HUD — the animated reactor (canvas) and the clock. Browser-only.
+// Alfred HUD — the particle globe (canvas) and the clock. Browser-only.
 //
 //   const orb = createOrb(canvas);
 //   orb.setState("idle" | "listening" | "thinking" | "speaking");
 //   orb.pulse();                 // a word was spoken (browser voice)
 //   orb.attachAnalyser(node);    // live audio level (AI voice)
+//
+// The globe is ~700 points on a Fibonacci sphere, rotated in 3D and projected with perspective.
+// Each point is a damped spring on its radius: speech kicks points outward and they settle back,
+// so the surface churns with the voice; listening "breathes" in yellow; thinking swirls the
+// latitude bands at different speeds.
 
-const STATE_SPEED = { idle: 0.25, listening: 0.45, thinking: 2.4, speaking: 0.7 };
-const CYAN = [70, 214, 255];
-const AMBER = [255, 182, 72];
+const GRAPHITE = [214, 217, 223];
+const YELLOW = [245, 196, 0];
+const COUNT = 700;
 
 export const STATE_LABELS = {
   idle: "Em espera",
@@ -16,19 +21,40 @@ export const STATE_LABELS = {
   speaking: "Falando",
 };
 
+function fibonacciSphere(n) {
+  const points = [];
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / (n - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const theta = golden * i;
+    points.push({
+      x: Math.cos(theta) * r,
+      y,
+      z: Math.sin(theta) * r,
+      radius: 1, // current radial scale
+      velocity: 0,
+      phase: Math.random() * Math.PI * 2,
+      gold: Math.random() < 0.06,
+    });
+  }
+  return points;
+}
+
 export function createOrb(canvas) {
   const ctx = canvas.getContext("2d");
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const points = fibonacciSphere(COUNT);
   let state = "idle";
-  let angle = 0;
-  let level = 0; // 0..1, smoothed
+  let yaw = 0;
+  let swirl = 0;
+  let level = 0; // 0..1 smoothed loudness
   let target = 0;
+  let warmth = 0; // 0 graphite → 1 yellow (listening)
   let analyser = null;
   let samples = null;
   let size = 0;
   let last = performance.now();
-  let tint = CYAN.slice();
-  const bars = new Float32Array(72);
 
   function resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -42,129 +68,126 @@ export function createOrb(canvas) {
   resize();
 
   const rgba = (c, a) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${a})`;
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-  function readLevel() {
-    if (analyser && state === "speaking") {
+  function readLevel(now) {
+    if (state === "speaking" && analyser) {
       samples ??= new Uint8Array(analyser.fftSize);
       analyser.getByteTimeDomainData(samples);
       let sum = 0;
       for (const v of samples) sum += ((v - 128) / 128) ** 2;
-      target = Math.min(1, Math.sqrt(sum / samples.length) * 4);
+      target = Math.min(1, Math.sqrt(sum / samples.length) * 4.5);
+    } else if (state === "speaking") {
+      target *= 0.9; // word pulses decay; keep the surface alive when the voice gives no events
+      if (target < 0.3 && Math.random() < 0.14) target = 0.45 + Math.random() * 0.5;
+    } else if (state === "listening") {
+      target = 0.22 + 0.14 * Math.sin(now / 260);
+    } else if (state === "thinking") {
+      target = 0.18;
+    } else {
+      target = 0.05;
     }
-    if (state === "thinking") target = 0.25 + 0.15 * Math.sin(angle * 3);
-    if (state === "listening") target = 0.35 + 0.25 * Math.sin(performance.now() / 220);
-    if (state === "idle") target = 0.08;
-    level += (target - level) * 0.18;
-    if (state === "speaking" && !analyser) {
-      target *= 0.9; // word pulses decay; keep some life when the voice gives no events
-      if (target < 0.25 && Math.random() < 0.12) target = 0.4 + Math.random() * 0.5;
-    }
-  }
-
-  function arc(r, start, end, width, alpha) {
-    ctx.beginPath();
-    ctx.arc(0, 0, r, start, end);
-    ctx.lineWidth = width;
-    ctx.strokeStyle = rgba(tint, alpha);
-    ctx.stroke();
+    level += (target - level) * 0.2;
   }
 
   function frame(now) {
     const dt = Math.min(64, now - last) / 1000;
     last = now;
-    const speed = reduceMotion ? 0.05 : STATE_SPEED[state];
-    angle += dt * speed;
-    readLevel();
-    const want = state === "listening" ? AMBER : CYAN;
-    for (let i = 0; i < 3; i++) tint[i] += (want[i] - tint[i]) * 0.08;
+    readLevel(now);
+    const calm = reduceMotion ? 0.15 : 1;
+    yaw += dt * calm * (state === "thinking" ? 1.1 : state === "speaking" ? 0.45 : 0.18);
+    swirl += dt * calm * (state === "thinking" ? 2.2 : 0);
+    warmth += ((state === "listening" ? 1 : 0) - warmth) * 0.06;
 
     const R = size / 2;
+    const globeR = R * 0.7;
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     ctx.translate(R, R);
 
-    // glow
-    const glow = ctx.createRadialGradient(0, 0, R * 0.05, 0, 0, R * 0.95);
-    glow.addColorStop(0, rgba(tint, 0.28 + level * 0.35));
-    glow.addColorStop(0.35, rgba(tint, 0.07 + level * 0.08));
-    glow.addColorStop(1, rgba(tint, 0));
+    // backdrop glow
+    const tone = mix(GRAPHITE, YELLOW, warmth * 0.8);
+    const glow = ctx.createRadialGradient(0, 0, globeR * 0.1, 0, 0, R);
+    glow.addColorStop(0, rgba(tone, 0.1 + level * 0.12));
+    glow.addColorStop(0.55, rgba(tone, 0.03));
+    glow.addColorStop(1, rgba(tone, 0));
     ctx.fillStyle = glow;
     ctx.fillRect(-R, -R, size, size);
 
-    // outer tick ring
+    // orbit ring with a yellow satellite
     ctx.save();
-    ctx.rotate(angle * 0.35);
-    for (let i = 0; i < 120; i++) {
-      const a = (i / 120) * Math.PI * 2;
-      const long = i % 10 === 0;
-      const r1 = R * 0.93;
-      const r2 = R * (long ? 0.86 : 0.895);
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
-      ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
-      ctx.lineWidth = long ? 1.6 : 0.8;
-      ctx.strokeStyle = rgba(tint, long ? 0.75 : 0.35);
-      ctx.stroke();
-    }
+    ctx.scale(1, 0.28);
+    ctx.beginPath();
+    ctx.arc(0, 0, R * 0.9, 0, Math.PI * 2);
+    ctx.setLineDash([2, 7]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(GRAPHITE, 0.22);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const sat = yaw * 1.4;
+    ctx.beginPath();
+    ctx.arc(Math.cos(sat) * R * 0.9, Math.sin(sat) * R * 0.9, 4, 0, Math.PI * 2);
+    ctx.fillStyle = rgba(YELLOW, 0.9);
+    ctx.fill();
     ctx.restore();
 
-    // segmented ring (counter-rotating)
-    ctx.save();
-    ctx.rotate(-angle * 0.8);
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      arc(R * 0.78, a + 0.08, a + Math.PI / 3 - 0.08, 3, 0.55);
+    // particles
+    const tilt = 0.38;
+    const cosT = Math.cos(tilt);
+    const sinT = Math.sin(tilt);
+    const kick = state === "speaking" ? level : state === "listening" ? level * 0.5 : level * 0.2;
+    const projected = [];
+    for (const p of points) {
+      // spring towards the surface, kicked outward by the voice
+      const wobble = Math.sin(now / 240 + p.phase) * 0.5 + 0.5;
+      if (!reduceMotion && Math.random() < kick * 0.08) p.velocity += kick * (0.6 + Math.random() * 1.4) * dt * 60 * 0.02;
+      const rest = 1 + kick * 0.08 * wobble;
+      p.velocity += (rest - p.radius) * 0.12 - p.velocity * 0.14;
+      p.radius += p.velocity;
+
+      // thinking: latitude bands turn at different speeds
+      const a = yaw + swirl * p.y * 0.6;
+      const cosA = Math.cos(a);
+      const sinA = Math.sin(a);
+      let x = p.x * cosA - p.z * sinA;
+      let z = p.x * sinA + p.z * cosA;
+      let y = p.y * cosT - z * sinT;
+      z = p.y * sinT + z * cosT;
+      x *= p.radius;
+      y *= p.radius;
+      z *= p.radius;
+      const persp = 2.6 / (2.6 + z);
+      projected.push({ sx: x * globeR * persp, sy: y * globeR * persp, z, persp, p });
     }
-    ctx.restore();
+    projected.sort((a, b) => b.z - a.z); // far first
 
-    // sweeping arcs
-    ctx.save();
-    ctx.rotate(angle * 1.6);
-    arc(R * 0.68, 0, Math.PI * 1.35, 1.2, 0.6);
-    arc(R * 0.64, Math.PI, Math.PI * 1.6, 5, 0.35);
-    ctx.restore();
-
-    // voice bars around the core
-    const inner = R * 0.38;
-    for (let i = 0; i < bars.length; i++) {
-      const noise = 0.55 + 0.45 * Math.sin(now / 90 + i * 1.7) * Math.sin(now / 160 + i * 0.6);
-      const want = state === "speaking" || state === "listening" ? level * noise : level * 0.25;
-      bars[i] += (want - bars[i]) * 0.25;
-      const a = (i / bars.length) * Math.PI * 2 + angle * 0.2;
-      const len = R * (0.02 + bars[i] * 0.2);
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (inner + 4), Math.sin(a) * (inner + 4));
-      ctx.lineTo(Math.cos(a) * (inner + 4 + len), Math.sin(a) * (inner + 4 + len));
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = rgba(tint, 0.35 + bars[i] * 0.6);
-      ctx.stroke();
+    ctx.globalCompositeOperation = "lighter";
+    for (const { sx, sy, z, persp, p } of projected) {
+      const depth = (1 - z) / 2; // 0 back → 1 front
+      const lift = Math.max(0, p.radius - 1); // detached particles glow
+      const goldness = p.gold ? 0.35 + kick * 0.6 + warmth * 0.55 + lift * 2 : warmth * 0.35 + lift * 1.5;
+      const color = mix(GRAPHITE, YELLOW, Math.min(1, goldness));
+      const alpha = Math.min(1, 0.12 + depth * 0.6 + lift * 3 + (p.gold ? 0.15 : 0));
+      const dot = (p.gold ? 1.9 : 1.25) * persp * (1 + lift * 4);
+      ctx.fillStyle = rgba(color, alpha);
+      if (p.gold || lift > 0.04) {
+        ctx.beginPath();
+        ctx.arc(sx, sy, dot, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(sx - dot / 2, sy - dot / 2, dot, dot);
+      }
     }
+    ctx.globalCompositeOperation = "source-over";
 
-    // core
-    const coreR = R * (0.2 + level * 0.06);
-    const core = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
-    core.addColorStop(0, "rgba(235, 252, 255, 0.95)");
-    core.addColorStop(0.45, rgba(tint, 0.75));
-    core.addColorStop(1, rgba(tint, 0.05));
+    // core highlight
+    const core = ctx.createRadialGradient(-globeR * 0.25, -globeR * 0.3, 0, 0, 0, globeR);
+    core.addColorStop(0, rgba(mix(GRAPHITE, YELLOW, warmth), 0.07 + level * 0.08));
+    core.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = core;
     ctx.beginPath();
-    ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+    ctx.arc(0, 0, globeR, 0, Math.PI * 2);
     ctx.fill();
-    arc(inner, 0, Math.PI * 2, 1, 0.5);
-    // triangular core frame
-    ctx.save();
-    ctx.rotate(-angle * 0.5);
-    ctx.beginPath();
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
-      const r = R * 0.29;
-      ctx[i ? "lineTo" : "moveTo"](Math.cos(a) * r, Math.sin(a) * r);
-    }
-    ctx.closePath();
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = rgba(tint, 0.6);
-    ctx.stroke();
-    ctx.restore();
 
     ctx.restore();
     requestAnimationFrame(frame);
@@ -179,7 +202,7 @@ export function createOrb(canvas) {
       return state;
     },
     pulse() {
-      target = Math.min(1, 0.55 + Math.random() * 0.4);
+      target = Math.min(1, 0.55 + Math.random() * 0.45);
     },
     attachAnalyser(node) {
       analyser = node;

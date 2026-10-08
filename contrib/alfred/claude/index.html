@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
   rel="stylesheet"
-  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=Oxanium:wght@400;500;600&family=Share+Tech+Mono&display=swap"
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=Saira+Condensed:wght@500;600;700&family=Share+Tech+Mono&display=swap"
 />
 <!-- Source of the Claude artifact. `node contrib/alfred/claude/build.mjs` inlines hud.css,
      voice.mjs and hud.mjs from ../public into one self-contained page before publishing. -->
@@ -31,6 +31,9 @@
         <span class="chip">Cérebro <b>Claude</b></span>
         <span class="chip">Voz <b id="chipVoice">Navegador</b></span>
         <label class="chip" for="speak"><input type="checkbox" id="speak" checked /> Falar respostas</label>
+        <label class="chip" for="autosend" title="Para o ditado do teclado: envia quando você para de falar">
+          <input type="checkbox" id="autosend" /> Modo ditado
+        </label>
       </div>
     </section>
 
@@ -73,7 +76,7 @@
     </form>
     <div class="hud-status">
       <span id="status" role="status"></span>
-      <span>No celular, use o 🎤 do teclado para ditar · ESC interrompe a voz</span>
+      <span>Modo ditado: toque no campo, use o 🎤 do teclado e fale — ele envia quando você para</span>
     </div>
   </footer>
 </div>
@@ -336,6 +339,30 @@
     store.set("speak", e.target.checked);
     if (!e.target.checked) speaker.cancel();
   });
+
+  // ---------- Modo ditado ----------
+  // O app do Claude não libera o microfone para a página, mas o ditado do teclado (🎤) escreve no
+  // campo. Com o modo ditado ligado, a frase é enviada sozinha quando o texto para de mudar.
+  const DICTATION_PAUSE_MS = 1700;
+  let dictationTimer = null;
+  const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  $("autosend").checked = store.get("autosend", touch);
+  $("autosend").addEventListener("change", (e) => {
+    store.set("autosend", e.target.checked);
+    clearTimeout(dictationTimer);
+  });
+  $("text").addEventListener("input", () => {
+    clearTimeout(dictationTimer);
+    if (!$("autosend").checked || !$("text").value.trim() || busy) return;
+    speaker.cancel(); // falar por cima interrompe o Alfred
+    dictationTimer = setTimeout(() => {
+      const text = $("text").value;
+      if (!text.trim() || busy) return;
+      $("text").value = "";
+      ask(text);
+    }, DICTATION_PAUSE_MS);
+  });
+  $("form").addEventListener("submit", () => clearTimeout(dictationTimer));
 
   // ---------- Microfone (o app do Claude costuma bloquear; o ditado do teclado sempre funciona) ----------
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;

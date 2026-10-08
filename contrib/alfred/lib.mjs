@@ -1,6 +1,8 @@
 // Alfred — pure helpers (config, prompt building, validation, SSE parsing).
 // Kept free of I/O so they can be unit-tested without a server or network.
 
+import { timingSafeEqual } from "node:crypto";
+
 export const DEFAULT_SYSTEM_PROMPT = [
   "Você é Alfred, um mordomo e assistente virtual pessoal: educado, prestativo, discreto",
   "e com um leve humor britânico. Responda sempre em português do Brasil, a menos que o",
@@ -336,5 +338,24 @@ export function soxRecordArgs(outFile) {
 
 export function isAuthorized(config, headerValue) {
   if (!config.accessToken) return true;
-  return headerValue === `Bearer ${config.accessToken}`;
+  const expected = Buffer.from(`Bearer ${config.accessToken}`);
+  const got = Buffer.from(String(headerValue ?? ""));
+  return got.length === expected.length && timingSafeEqual(got, expected);
+}
+
+// ---------- Tunnel (falar com o Alfred pelo celular) ----------
+
+/** `cloudflared` quick tunnel: a public https URL for the local server, no account needed. */
+export function buildTunnelArgs(port) {
+  return ["tunnel", "--no-autoupdate", "--url", `http://127.0.0.1:${port}`];
+}
+
+/** Finds the https://…trycloudflare.com address in cloudflared's log output. */
+export function extractTunnelUrl(text) {
+  return String(text ?? "").match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)?.[0] ?? null;
+}
+
+/** The link to open on the phone: the token rides in the #fragment, which never reaches a server. */
+export function buildPhoneLink(url, token) {
+  return `${url}/#token=${encodeURIComponent(token)}`;
 }

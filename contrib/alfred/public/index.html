@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=Oxanium:wght@400;500;600&family=Share+Tech+Mono&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=Saira+Condensed:wght@500;600;700&family=Share+Tech+Mono&display=swap"
     />
     <link rel="stylesheet" href="hud.css" />
   </head>
@@ -129,6 +129,13 @@
 
       let history = store.get("history", []);
       let token = store.get("token", "");
+      // Link do celular (--tunel): a senha vem em #token=… e sai da barra de endereço em seguida.
+      const linkToken = location.hash.match(/(?:^#|&)token=([^&]+)/);
+      if (linkToken) {
+        token = decodeURIComponent(linkToken[1]);
+        store.set("token", token);
+        history.replaceState(null, "", location.pathname + location.search);
+      }
       // "voice:v2": the first version stored a lowered pitch that made voices sound robotic.
       let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice:v2", {}) };
       let busy = false;

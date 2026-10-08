@@ -6,6 +6,10 @@ import {
   buildChatCall,
   buildClaudeCommand,
   buildClaudePrompt,
+  buildPhoneLink,
+  buildTunnelArgs,
+  extractTunnelUrl,
+  isAuthorized,
   loadConfig,
   parseClaudeLine,
   soxRecordArgs,
@@ -114,4 +118,23 @@ test("artifact build inlines the stylesheet and modules", () => {
   assert.doesNotMatch(out, /from "\.\//);
   assert.doesNotMatch(out, /^export /m);
   assert.throws(() => inlineModule("x", 'import y from "./y.mjs";'));
+});
+
+test("phone tunnel: cloudflared quick tunnel, URL parsing and token in the fragment", () => {
+  assert.deepEqual(buildTunnelArgs(20140), ["tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:20140"]);
+  const log = "2026-10-08T21:50:01Z INF |  https://brave-alfred-1234.trycloudflare.com  |";
+  assert.equal(extractTunnelUrl(log), "https://brave-alfred-1234.trycloudflare.com");
+  assert.equal(extractTunnelUrl("INF Requesting new quick Tunnel on trycloudflare.com..."), null);
+  assert.equal(
+    buildPhoneLink("https://x.trycloudflare.com", "a+b/c"),
+    "https://x.trycloudflare.com/#token=a%2Bb%2Fc"
+  );
+});
+
+test("isAuthorized compares the bearer token exactly", () => {
+  const config = loadConfig({ ALFRED_TOKEN: "s3cret" });
+  assert.equal(isAuthorized(config, "Bearer s3cret"), true);
+  assert.equal(isAuthorized(config, "Bearer s3cre"), false);
+  assert.equal(isAuthorized(config, "Bearer s3cretX"), false);
+  assert.equal(isAuthorized(config, undefined), false);
 });

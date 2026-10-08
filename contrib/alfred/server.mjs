@@ -6,6 +6,8 @@
 //
 // Settings come from the environment, plus contrib/alfred/alfred.env when it exists.
 
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -14,7 +16,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BRAIN_LABELS, BrainError, detectBrain, streamReply } from "./brain.mjs";
 import {
+  buildPhoneLink,
   buildTtsRequest,
+  buildTunnelArgs,
+  extractTunnelUrl,
   isAuthorized,
   loadConfig,
   ttsVoices,
@@ -28,6 +33,14 @@ const ENV_FILE = join(HERE, "alfred.env");
 // Variables already set in the shell win over the file (loadEnvFile never overrides).
 if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 const config = loadConfig();
+// --tunel: publish the server on an https link for the phone (mic needs https). The API then
+// always requires a token; one is generated for this run when ALFRED_TOKEN is not set.
+const wantTunnel = process.argv.includes("--tunel") || process.env.ALFRED_TUNNEL === "1";
+let generatedToken = false;
+if (wantTunnel && !config.accessToken) {
+  config.accessToken = randomBytes(18).toString("base64url");
+  generatedToken = true;
+}
 let brain = null; // resolved at startup ("auto" → the first brain that answers)
 let brainReady = null;
 
@@ -228,6 +241,46 @@ async function announceBrain() {
   }
 }
 
+function startTunnel() {
+  const bin = process.env.ALFRED_CLOUDFLARED_BIN || "cloudflared";
+  let child;
+  try {
+    child = spawn(bin, buildTunnelArgs(config.port), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  } catch {
+    child = null;
+  }
+  const missing = () => {
+    console.warn("   ⚠️  Não encontrei o cloudflared, que cria o link para o celular. Instale e rode de novo:");
+    console.warn("      Windows: winget install Cloudflare.cloudflared · Mac: brew install cloudflared");
+    console.warn("      Linux: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/");
+  };
+  if (!child) return missing();
+  let announced = false;
+  const watch = (data) => {
+    const url = extractTunnelUrl(data);
+    if (!url || announced) return;
+    announced = true;
+    console.log("\n📱 Para falar com o Alfred pelo celular (com microfone), abra este link:");
+    console.log(`   ${buildPhoneLink(url, config.accessToken)}`);
+    console.log("   O link já leva a senha. Não compartilhe: quem tiver o link fala com o seu Alfred.");
+    if (generatedToken) console.log("   (senha gerada só para esta execução — defina ALFRED_TOKEN para fixar uma)\n");
+  };
+  child.stdout.on("data", watch);
+  child.stderr.on("data", watch);
+  child.on("error", missing);
+  child.on("exit", (code) => {
+    if (announced) console.warn(`   ⚠️  O link do celular caiu (cloudflared saiu com código ${code}).`);
+  });
+  const stop = () => child.exitCode === null && child.kill();
+  process.on("exit", stop);
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.on(signal, () => {
+      stop();
+      process.exit(0);
+    });
+  }
+}
+
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`❌ A porta ${config.port} já está em uso. Use outra: ALFRED_PORT=20141`);
@@ -255,4 +308,5 @@ server.listen(config.port, config.host, () => {
     console.warn("   ⚠️  Exposto na rede sem ALFRED_TOKEN — defina um token de acesso.");
   }
   announceBrain();
+  if (wantTunnel) startTunnel();
 });

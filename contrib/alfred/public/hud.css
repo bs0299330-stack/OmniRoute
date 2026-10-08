@@ -1,19 +1,20 @@
-/* Alfred HUD — holographic interface shared by the local page and the Claude artifact.
-   Layout: header readouts / [reactor stage | log panel] / command bar. Single dark theme on purpose
-   (a projection needs a dark room), every color set explicitly so any host background is covered. */
+/* Alfred HUD — shared by the local page and the Claude artifact.
+   Palette of a night-ops suit: near-black, graphite greys and one sparing yellow accent.
+   Layout: header readouts / [particle globe | log panel] / command bar. Single dark theme on
+   purpose, every color set explicitly so any host background is covered. */
 :root {
-  --void: #02070c;
-  --deep: #061420;
-  --panel: rgba(8, 30, 46, 0.55);
-  --holo: #46d6ff;
-  --holo-soft: rgba(70, 214, 255, 0.35);
-  --holo-faint: rgba(70, 214, 255, 0.12);
-  --ice: #d8f6ff;
-  --text: #a9dcee;
-  --muted: #5f8ea3;
-  --amber: #ffb648;
-  --danger: #ff6474;
-  --font-display: "Oxanium", "Segoe UI", system-ui, sans-serif;
+  --void: #09090a;
+  --deep: #141416;
+  --panel: rgba(22, 22, 25, 0.74);
+  --accent: #f5c400;
+  --accent-soft: rgba(245, 196, 0, 0.35);
+  --line-strong: rgba(176, 180, 188, 0.32);
+  --line: rgba(176, 180, 188, 0.14);
+  --bright: #eeede8;
+  --text: #b8bbc2;
+  --muted: #73767e;
+  --danger: #ef5b5b;
+  --font-display: "Saira Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-data: "Share Tech Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   color-scheme: dark;
@@ -31,8 +32,8 @@ body {
 }
 body {
   background:
-    radial-gradient(ellipse at 50% 38%, rgba(30, 120, 170, 0.22), transparent 62%),
-    radial-gradient(ellipse at 50% 120%, rgba(20, 90, 130, 0.25), transparent 55%),
+    radial-gradient(ellipse at 50% 38%, rgba(120, 124, 132, 0.12), transparent 62%),
+    radial-gradient(ellipse at 50% 125%, rgba(245, 196, 0, 0.06), transparent 50%),
     var(--void);
   color: var(--text);
   font: 15px/1.55 var(--font-body);
@@ -45,9 +46,9 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    repeating-linear-gradient(to bottom, rgba(120, 220, 255, 0.035) 0 1px, transparent 1px 3px),
-    linear-gradient(rgba(70, 214, 255, 0.04) 1px, transparent 1px) 0 0 / 48px 48px,
-    linear-gradient(90deg, rgba(70, 214, 255, 0.04) 1px, transparent 1px) 0 0 / 48px 48px;
+    repeating-linear-gradient(to bottom, rgba(200, 204, 210, 0.022) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(200, 204, 210, 0.028) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(90deg, rgba(200, 204, 210, 0.028) 1px, transparent 1px) 0 0 / 48px 48px;
   mask-image: radial-gradient(ellipse at center, black 30%, transparent 85%);
 }
 .hud {
@@ -68,7 +69,7 @@ body::before {
   gap: 12px 20px;
   flex-wrap: wrap;
   padding-block: 14px 10px;
-  border-bottom: 1px solid var(--holo-faint);
+  border-bottom: 1px solid var(--line);
 }
 .brand {
   display: flex;
@@ -80,10 +81,10 @@ body::before {
 }
 .brand h1 {
   margin: 0;
-  font: 600 1.7rem/1 var(--font-display);
-  letter-spacing: 0.42em;
-  color: var(--ice);
-  text-shadow: 0 0 18px rgba(70, 214, 255, 0.55);
+  font: 600 2rem/1 var(--font-display);
+  letter-spacing: 0.34em;
+  color: var(--bright);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
 }
 .brand .tagline {
   font: 0.72rem/1 var(--font-data);
@@ -91,8 +92,17 @@ body::before {
   text-transform: uppercase;
   color: var(--muted);
 }
+.brand .tagline::before {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  margin-right: 10px;
+  vertical-align: middle;
+  background: var(--accent);
+}
 .brand .tagline b {
-  color: var(--holo);
+  color: var(--accent);
   font-weight: 400;
 }
 .readouts {
@@ -106,7 +116,7 @@ body::before {
 }
 .readouts strong {
   display: block;
-  color: var(--ice);
+  color: var(--bright);
   font: 400 1.15rem/1.1 var(--font-data);
   letter-spacing: 0.06em;
 }
@@ -138,7 +148,7 @@ body::before {
   position: absolute;
   width: 22px;
   height: 22px;
-  border: 1px solid var(--holo-soft);
+  border: 1px solid var(--line-strong);
   pointer-events: none;
 }
 .stage::before,
@@ -162,13 +172,14 @@ body::before {
   display: block;
 }
 .state {
-  font: 500 0.8rem/1 var(--font-display);
+  font: 600 0.9rem/1 var(--font-display);
   letter-spacing: 0.38em;
   text-transform: uppercase;
-  color: var(--holo);
+  color: var(--text);
 }
-.state[data-state="listening"] {
-  color: var(--amber);
+.state[data-state="listening"],
+.state[data-state="speaking"] {
+  color: var(--accent);
 }
 .caption {
   min-height: 3.2em;
@@ -176,7 +187,7 @@ body::before {
   margin: 0;
   text-align: center;
   font: 300 1.15rem/1.45 var(--font-body);
-  color: var(--ice);
+  color: var(--bright);
   text-wrap: balance;
   overflow-wrap: anywhere;
 }
@@ -191,23 +202,23 @@ body::before {
   align-items: center;
   gap: 8px;
   padding: 5px 11px;
-  border: 1px solid var(--holo-faint);
+  border: 1px solid var(--line);
   border-radius: 2px;
   font: 0.72rem/1.2 var(--font-data);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
-  background: rgba(6, 20, 32, 0.6);
+  background: rgba(20, 20, 23, 0.72);
 }
 .chip b {
-  color: var(--ice);
+  color: var(--bright);
   font-weight: 400;
 }
 label.chip {
   cursor: pointer;
 }
 label.chip input {
-  accent-color: var(--holo);
+  accent-color: var(--accent);
   margin: 0;
 }
 .suggestions {
@@ -226,15 +237,15 @@ label.chip input {
   min-width: 0;
   min-height: 0;
   background: var(--panel);
-  border: 1px solid var(--holo-faint);
+  border: 1px solid var(--line);
   backdrop-filter: blur(6px);
 }
 .panel h2 {
   margin: 0;
   padding: 12px 14px 8px;
-  font: 500 0.72rem/1 var(--font-display);
+  font: 600 0.82rem/1 var(--font-display);
   letter-spacing: 0.32em;
-  color: var(--holo);
+  color: var(--text);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -252,7 +263,7 @@ label.chip input {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scrollbar-color: var(--holo-soft) transparent;
+  scrollbar-color: var(--line-strong) transparent;
 }
 .entry {
   display: grid;
@@ -271,13 +282,13 @@ label.chip input {
   color: var(--text);
 }
 .entry.alfred .who {
-  color: var(--holo);
+  color: var(--text);
 }
 .entry.alfred .what {
-  color: var(--ice);
+  color: var(--bright);
 }
 .entry.user .who {
-  color: var(--amber);
+  color: var(--accent);
 }
 .entry.note .what {
   color: var(--danger);
@@ -293,7 +304,7 @@ label.chip input {
 
 /* voice panel */
 details.voice {
-  border-bottom: 1px solid var(--holo-faint);
+  border-bottom: 1px solid var(--line);
   padding: 0 14px 10px;
 }
 details.voice summary {
@@ -319,7 +330,7 @@ details.voice summary {
   color: var(--muted);
 }
 .field output {
-  color: var(--ice);
+  color: var(--bright);
 }
 .field select,
 .field input[type="range"] {
@@ -332,14 +343,14 @@ details.voice summary {
 }
 select {
   font: 0.85rem var(--font-body);
-  color: var(--ice);
+  color: var(--bright);
   background: var(--deep);
-  border: 1px solid var(--holo-soft);
+  border: 1px solid var(--line-strong);
   border-radius: 2px;
   padding: 6px 8px;
 }
 input[type="range"] {
-  accent-color: var(--holo);
+  accent-color: var(--accent);
 }
 
 /* ---------- buttons ---------- */
@@ -347,9 +358,9 @@ button {
   font: 500 0.78rem/1 var(--font-display);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--ice);
-  background: rgba(70, 214, 255, 0.06);
-  border: 1px solid var(--holo-soft);
+  color: var(--bright);
+  background: rgba(200, 204, 210, 0.05);
+  border: 1px solid var(--line-strong);
   border-radius: 2px;
   padding: 10px 14px;
   min-height: 40px;
@@ -359,8 +370,12 @@ button {
     box-shadow 0.2s;
 }
 button:hover:not(:disabled) {
-  background: rgba(70, 214, 255, 0.16);
-  box-shadow: 0 0 14px rgba(70, 214, 255, 0.25);
+  background: rgba(200, 204, 210, 0.12);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+#send:hover:not(:disabled) {
+  background: #ffd52e;
+  box-shadow: none;
 }
 button:disabled {
   opacity: 0.45;
@@ -380,7 +395,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--holo);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -388,7 +403,7 @@ summary:focus-visible {
 .hud-bar {
   padding-block: 8px 12px;
   padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--holo-faint);
+  border-top: 1px solid var(--line);
 }
 .hud-bar form {
   display: flex;
@@ -403,26 +418,27 @@ summary:focus-visible {
   border-radius: 50%;
   font-size: 1.25rem;
   letter-spacing: 0;
-  border-color: var(--holo);
+  border-color: var(--accent);
+  color: var(--accent);
   box-shadow:
-    0 0 0 3px rgba(70, 214, 255, 0.08),
-    0 0 18px rgba(70, 214, 255, 0.3) inset;
+    0 0 0 3px rgba(245, 196, 0, 0.08),
+    0 0 14px rgba(245, 196, 0, 0.16) inset;
 }
 #mic.listening,
 #mic.on {
-  border-color: var(--amber);
-  color: var(--amber);
+  border-color: var(--accent);
+  color: var(--accent);
   box-shadow:
-    0 0 0 4px rgba(255, 182, 72, 0.15),
-    0 0 22px rgba(255, 182, 72, 0.45);
+    0 0 0 4px rgba(245, 196, 0, 0.18),
+    0 0 24px rgba(245, 196, 0, 0.45);
 }
 #text {
   flex: 1;
   min-width: 0;
   font: 1rem var(--font-body);
-  color: var(--ice);
-  background: rgba(6, 20, 32, 0.75);
-  border: 1px solid var(--holo-soft);
+  color: var(--bright);
+  background: rgba(18, 18, 21, 0.88);
+  border: 1px solid var(--line-strong);
   border-radius: 2px;
   padding: 14px 16px;
 }
@@ -432,8 +448,9 @@ summary:focus-visible {
 #send {
   min-height: 52px;
   padding-inline: 20px;
-  background: rgba(70, 214, 255, 0.16);
-  border-color: var(--holo);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111111;
 }
 .hud-status {
   display: flex;
