@@ -24,52 +24,49 @@ O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** s
 
 ## Hospedar no seu PC (Windows)
 
-O Alfred é só esta pasta (`contrib/alfred`). Ele não precisa do resto do OmniRoute nem de
-`npm install`: basta o Node.js.
+O Alfred é só esta pasta (`contrib/alfred`). Ele não precisa do resto do OmniRoute, de Git nem de
+`npm install`, só do Node.js 22+, que o instalador coloca se faltar.
 
-1. **Instale o Node.js 22 ou mais novo** (uma vez). No terminal (PowerShell):
+**Jeito mais fácil: um comando.** Abra o **PowerShell** (menu Iniciar → digite "PowerShell"),
+cole esta linha inteira e aperte Enter:
 
-   ```powershell
-   winget install OpenJS.NodeJS.LTS
-   ```
+```powershell
+irm https://raw.githubusercontent.com/bs0299330-stack/OmniRoute/claude/alfred-virtual-assistant-awv48m/contrib/alfred/windows/instalar.ps1 | iex
+```
 
-   Ou baixe a versão LTS em <https://nodejs.org>. Feche e abra o terminal depois de instalar.
+Ele baixa o Alfred para `Documentos\Alfred`, instala o Node.js (se faltar, pelo `winget`), cria o
+atalho **Alfred** na Área de Trabalho e já abre o Alfred no navegador. Rodar o mesmo comando de
+novo **atualiza** o Alfred e mantém o seu `alfred.env`.
 
-2. **Baixe o Alfred**, só a pasta dele, sem o OmniRoute inteiro (cerca de 15 MB):
+**Sem o comando:** baixe o `Alfred.zip`, clique com o botão direito → **Extrair tudo** (por
+exemplo em `Documentos`), entre em `Alfred\windows` e dê clique duplo em `iniciar-alfred.cmd`.
+Se o Windows avisar "O Windows protegeu o computador", clique em **Mais informações → Executar
+assim mesmo** (acontece com qualquer arquivo baixado da internet).
 
-   ```powershell
-   cd $HOME\Documents
-   git clone --depth 1 --branch claude/alfred-virtual-assistant-awv48m --filter=blob:none --sparse https://github.com/bs0299330-stack/OmniRoute Alfred
-   cd Alfred
-   git sparse-checkout set contrib/alfred
-   ```
+**Com Git** (para quem já usa):
 
-   O Alfred fica em `Documentos\Alfred\contrib\alfred`. Sem Git: no GitHub, abra a branch
-   `claude/alfred-virtual-assistant-awv48m`, use **Code → Download ZIP** e copie a pasta
-   `contrib/alfred` para onde quiser.
+```powershell
+git clone --depth 1 --branch claude/alfred-virtual-assistant-awv48m --filter=blob:none --sparse https://github.com/bs0299330-stack/OmniRoute Alfred
+cd Alfred; git sparse-checkout set contrib/alfred
+```
 
-3. **Configure** (opcional, mas é o que liga a voz de IA): na primeira vez, os atalhos criam o
-   `alfred.env`. Abra esse arquivo no Bloco de Notas e preencha `OPENAI_API_KEY=` (voz de IA e
-   microfone no terminal). Sem nada configurado, o cérebro é o **Claude Code** do seu PC (se você
-   já usa o `claude` no terminal), ou o OmniRoute, se estiver rodando.
+**Depois de instalado**, os atalhos ficam em `Alfred\windows` (ou `contrib\alfred\windows` no Git):
 
-4. **Ligue o Alfred** com clique duplo em `contrib\alfred\windows\`:
+| Atalho                       | O que faz                                                            |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `iniciar-alfred.cmd`         | Liga o Alfred e abre <http://localhost:20140> no navegador            |
+| `alfred-celular.cmd`         | Liga e mostra um link https para usar no celular, com microfone      |
+| `alfred-terminal.cmd`        | Alfred no terminal                                                    |
+| `ligar-com-o-windows.cmd`    | Faz o Alfred ligar sozinho (minimizado) sempre que você entrar no PC |
+| `desligar-com-o-windows.cmd` | Desfaz o anterior                                                     |
 
-   | Atalho                       | O que faz                                                          |
-   | ---------------------------- | ------------------------------------------------------------------ |
-   | `iniciar-alfred.cmd`         | Liga o Alfred e abre <http://localhost:20140> no navegador          |
-   | `alfred-celular.cmd`         | Liga e mostra um link https para usar no celular, com microfone    |
-   | `alfred-terminal.cmd`        | Alfred no terminal                                                  |
-   | `ligar-com-o-windows.cmd`    | Faz o Alfred ligar sozinho (minimizado) sempre que você entrar no PC |
-   | `desligar-com-o-windows.cmd` | Desfaz o anterior                                                   |
+A janela preta é o Alfred rodando: **fechar a janela desliga o Alfred**. Na primeira vez os
+atalhos criam o `alfred.env`. Abra no Bloco de Notas e preencha `OPENAI_API_KEY=` para ter a voz
+de IA. Sem nada configurado, o cérebro é o **Claude Code** do seu PC (se você usa o `claude` no
+terminal), ou o OmniRoute, se estiver rodando.
 
-   A janela preta é o Alfred rodando: **fechar a janela desliga o Alfred**. Use o Chrome ou o
-   Edge (o Edge tem a voz "Antonio" mais natural, caso você não use a voz de IA).
-
-5. **Atualizar** quando houver novidades: `cd $HOME\Documents\Alfred` e depois `git pull`.
-
-No Mac ou no Linux é igual, só que sem os atalhos: instale o Node 22, baixe com os mesmos comandos
-`git` e rode `node contrib/alfred/server.mjs` (ou `--tunel`, ou `cli.mjs`).
+No Mac ou no Linux: instale o Node 22, baixe com o comando `git` acima e rode
+`node contrib/alfred/server.mjs` (ou `--tunel`, ou `cli.mjs`).
 
 ## Como usar
 
@@ -245,7 +242,8 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
   `tests/unit/alfred-voice.test.ts`.
 - `public/index.html` — interface e microfone (máquina de estados: parado → frase → "Alfred…").
 - `windows/*.cmd` — atalhos de clique duplo para o Windows (iniciar, celular, terminal, ligar com
-  o Windows).
+  o Windows); `windows/instalar.ps1` — o instalador de um comando (a lista de arquivos dele é
+  conferida por um teste).
 - `claude/index.html` — versão que roda dentro do Claude (Artifact): o cérebro é o Claude, a voz é a
   do navegador, e o microfone é bloqueado pelo app (use o ditado do teclado). Antes de publicar,
   `node contrib/alfred/claude/build.mjs` gera `claude/dist/alfred.html`, um arquivo único com o
