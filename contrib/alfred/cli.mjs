@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, detectBrain, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, checkBrains, detectBrainInfo, streamReply } from "./brain.mjs";
 import {
   LINUX_PLAYERS,
   OPENAI_STT_URL,
@@ -36,13 +36,15 @@ const option = (name) => argv.find((a) => a.startsWith(`--${name}=`))?.split("="
 if (option("cerebro")) process.env.ALFRED_BRAIN = option("cerebro");
 
 const config = loadConfig();
+if (!flag("debug")) process.env.ALFRED_QUIET = "1"; // --debug mostra os logs técnicos
 const STOP_WORDS = /^(tchau|até logo|pode parar|parar|sair|obrigado,? alfred\.?)$/i;
 
 // ---------- Cores ----------
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code) => (text) => (useColor ? `\x1b[${code}m${text}\x1b[0m` : text);
-const cyan = paint("38;5;81");
-const glow = paint("1;38;5;117");
+const cyan = paint("38;5;250"); // graphite
+const glow = paint("1;38;5;220"); // the yellow accent
+const green = paint("38;5;114");
 const dim = paint("2");
 const red = paint("38;5;203");
 
@@ -242,20 +244,27 @@ async function tempDir() {
 const voice = new Voice();
 const ears = new Ears();
 let brain = "omniroute";
+let brainFound = true;
 let messages = [];
 let controller = null;
 let conversation = false;
 
 async function ask(text) {
+  if (!brainFound) {
+    console.log(red("\n  O Alfred está sem cérebro para responder.") + " Veja as opções acima ou digite /diagnostico.\n");
+    return;
+  }
   voice.cancel();
   messages.push({ role: "user", content: text });
   messages = messages.slice(-40);
   controller = new AbortController();
   const chunker = createChunker(CHUNKING.neural);
   process.stdout.write(glow("\n  ALFRED › "));
+  const thinking = startThinking();
   let full = "";
   try {
     for await (const delta of streamReply(config, brain, messages, { signal: controller.signal })) {
+      thinking.stop();
       full += delta;
       process.stdout.write(delta);
       for (const piece of chunker.push(delta)) voice.say(piece);
@@ -265,6 +274,7 @@ async function ask(text) {
     if (full) messages.push({ role: "assistant", content: full });
     else messages.pop();
   } catch (err) {
+    thinking.stop();
     messages.pop();
     if (controller.signal.aborted) {
       process.stdout.write(dim(" (interrompido)\n\n"));
@@ -274,8 +284,35 @@ async function ask(text) {
     if (!(err instanceof BrainError)) console.error(err);
     process.stdout.write(red(message) + "\n\n");
   } finally {
+    thinking.stop();
     controller = null;
   }
+}
+
+/** "pensando… 3s" while waiting for the first words, so a slow brain never looks frozen. */
+function startThinking() {
+  if (!process.stdout.isTTY) return { stop() {} };
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const started = Date.now();
+  let i = 0;
+  let shown = "";
+  const draw = () => {
+    const secs = Math.floor((Date.now() - started) / 1000);
+    const text = `${frames[i++ % frames.length]} pensando… ${secs}s`;
+    process.stdout.write("\b".repeat(shown.length) + dim(text));
+    shown = text;
+  };
+  draw();
+  const timer = setInterval(draw, 120);
+  return {
+    stop() {
+      clearInterval(timer);
+      if (shown) {
+        process.stdout.write("\b".repeat(shown.length) + " ".repeat(shown.length) + "\b".repeat(shown.length));
+        shown = "";
+      }
+    },
+  };
 }
 
 async function listenOnce() {
@@ -329,6 +366,7 @@ const HELP = `
     ${cyan("/conversa")}    mãos livres: ouve, responde e ouve de novo
     ${cyan("/voz")}         liga/desliga a voz
     ${cyan("/nova")}        começa uma conversa nova
+    ${cyan("/diagnostico")} testa o cérebro, a voz e o microfone e diz o que falta
     ${cyan("/sair")}        sai (ou Ctrl+C duas vezes)
 `;
 
@@ -344,10 +382,55 @@ function banner() {
   console.log(dim(`   voz      ${vozInfo}`));
   console.log(dim(`   ouvido   ${ears.available ? "microfone pronto (Enter vazio)" : "indisponível — " + ears.whyNot()}`));
   console.log(dim("   /ajuda para os comandos\n"));
+  if (!brainFound) {
+    console.log(red("   ⚠  Nenhum cérebro está funcionando, então o Alfred não consegue responder."));
+    console.log("      Escolha UMA opção (depois feche e abra o Alfred):");
+    console.log(`      ${glow("1.")} Claude (se você tem plano Pro ou Max): no PowerShell rode`);
+    console.log(`         ${cyan("irm https://claude.ai/install.ps1 | iex")}`);
+    console.log("         feche e abra o terminal, rode " + cyan("claude") + " e faça o login.");
+    console.log(`      ${glow("2.")} OpenAI: coloque sua chave em OPENAI_API_KEY no arquivo alfred.env.`);
+    console.log(`      ${glow("3.")} OmniRoute: deixe o OmniRoute ligado.`);
+    console.log(dim("      Digite /diagnostico para testar tudo.\n"));
+  }
+}
+
+async function diagnose() {
+  const mark = (ok) => (ok ? green("✔") : red("✘"));
+  console.log(glow("\n  DIAGNÓSTICO DO ALFRED\n"));
+  console.log(`  ${mark(true)} Node.js ${process.versions.node}`);
+  console.log(dim("    Testando os cérebros (o Claude pode levar até 1 minuto)…"));
+  const brains = await checkBrains(config);
+  for (const [name, check] of Object.entries(brains)) {
+    console.log(`  ${mark(check.ok)} Cérebro ${BRAIN_LABELS[name]}: ${check.detail}`);
+    if (!check.ok && check.fix) console.log(dim(`      → ${check.fix}`));
+  }
+  const working = Object.entries(brains).filter(([, c]) => c.ok).map(([n]) => BRAIN_LABELS[n]);
+  console.log(
+    working.length
+      ? `    ${green("Cérebro disponível:")} ${working.join(", ")}`
+      : `    ${red("Nenhum cérebro funcionando — resolva pelo menos um dos itens acima.")}`
+  );
+  console.log(
+    `  ${mark(voice.enabled)} Voz de IA: ${
+      voice.enabled ? `${config.ttsVoice} (${config.ttsProvider})` : config.ttsProvider ? "sem player de áudio" : "desligada"
+    }`
+  );
+  if (!config.ttsProvider) console.log(dim("      → Opcional: OPENAI_API_KEY no alfred.env liga a voz de IA."));
+  console.log(`  ${mark(ears.available)} Microfone no terminal: ${ears.available ? "pronto" : "indisponível"}`);
+  if (!ears.available) console.log(dim(`      → Opcional: ${ears.whyNot()}`));
+  const tunnel = hasCommand("cloudflared");
+  console.log(`  ${mark(tunnel)} Link para o celular (cloudflared): ${tunnel ? "instalado" : "não instalado"}`);
+  if (!tunnel) console.log(dim("      → Opcional: winget install Cloudflare.cloudflared"));
+  console.log("");
+  return working.length > 0;
 }
 
 async function main() {
-  brain = await detectBrain(config);
+  if (flag("diagnostico")) {
+    const ok = await diagnose();
+    process.exit(ok ? 0 : 1);
+  }
+  ({ brain, found: brainFound } = await detectBrainInfo(config));
   banner();
 
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: cyan("  VOCÊ  › ") });
@@ -379,6 +462,11 @@ async function main() {
       return console.log(dim(`  Voz ${voice.enabled ? "ligada" : "desligada"}.\n`));
     }
     if (text === "/conversa") return conversationLoop();
+    if (text === "/diagnostico") {
+      await diagnose();
+      ({ brain, found: brainFound } = await detectBrainInfo(config));
+      return;
+    }
     if (!text) {
       const heard = await listenOnce();
       if (heard) await ask(heard);

@@ -562,7 +562,11 @@
       fetch("api/health")
         .then((r) => r.json())
         .then((h) => {
-          $("chipBrain").textContent = h.brain || "—";
+          $("chipBrain").textContent = h.brain || "nenhum";
+          if (h.brainFound === false) {
+            $("caption").textContent = "Estou sem cérebro para responder, senhor.";
+            setStatus("Sem cérebro: instale o Claude Code, ou coloque OPENAI_API_KEY no alfred.env, ou ligue o OmniRoute. Rode windows\\diagnostico.cmd para testar.", true);
+          }
           tts = h.tts || null;
           ttsAvailable = !!tts;
           $("engineField").hidden = !ttsAvailable;

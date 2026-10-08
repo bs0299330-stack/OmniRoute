@@ -228,10 +228,12 @@ export function buildChatCall(config, brain, messages, now = new Date()) {
 
 /**
  * Claude Code (`claude -p`) as the brain. The conversation goes through stdin, so nothing the
- * user says ever reaches a command line. On Windows `claude` is a .cmd shim that needs cmd.exe,
- * so only constant, validated arguments are passed there and the persona rides in the prompt.
+ * user says ever reaches a command line. A bare `claude` on Windows may be a .cmd shim that needs
+ * cmd.exe, so then only constant, validated arguments are passed and the persona rides in the
+ * prompt; a full path to claude.exe runs directly.
  */
-export function buildClaudeCommand(config, platform = process.platform) {
+export function buildClaudeCommand(config, platform = process.platform, bin = config.claudeBin) {
+  const shell = platform === "win32" && !/\.exe$/i.test(bin);
   const args = [
     "-p",
     "--output-format",
@@ -240,12 +242,25 @@ export function buildClaudeCommand(config, platform = process.platform) {
     "--include-partial-messages",
     "--no-session-persistence",
     "--tools",
-    platform === "win32" ? '""' : "",
+    shell ? '""' : "",
   ];
   if (config.claudeModel) args.push("--model", config.claudeModel);
-  const personaInArgs = platform !== "win32";
+  const personaInArgs = !shell;
   if (personaInArgs) args.push("--system-prompt", buildSystemPrompt(config));
-  return { command: config.claudeBin, args, shell: platform === "win32", personaInArgs };
+  return { command: bin, args, shell, personaInArgs };
+}
+
+/**
+ * Where to look for Claude Code: the PATH first, then the native installer's location, which a
+ * terminal opened before the install does not have on its PATH yet.
+ */
+export function claudeCandidates(config, platform = process.platform, env = process.env) {
+  if (config.claudeBin !== "claude") return [config.claudeBin];
+  const home = env.USERPROFILE || env.HOME || "";
+  if (!home) return ["claude"];
+  return platform === "win32"
+    ? ["claude", `${home}\\.local\\bin\\claude.exe`]
+    : ["claude", `${home}/.local/bin/claude`];
 }
 
 /** The stdin prompt for `claude -p`: (persona) + transcript + the new message. */
@@ -266,7 +281,7 @@ export function buildClaudePrompt(config, messages, { personaInArgs = true, now 
   return lines.join("\n");
 }
 
-/** One stdout line of `claude -p --output-format stream-json` → `{ text }`, `{ done }`, `{ error }` or null. */
+/** One stdout line of `claude -p --output-format stream-json` → `{ text }`, `{ done }`, `{ error, detail }` or null. */
 export function parseClaudeLine(line) {
   let event;
   try {
@@ -283,7 +298,7 @@ export function parseClaudeLine(line) {
   }
   if (event?.type === "result") {
     return event.is_error || event.subtype?.startsWith("error")
-      ? { error: "O Claude Code não conseguiu responder." }
+      ? { error: "O Claude Code não conseguiu responder.", detail: String(event.result ?? event.subtype ?? "") }
       : { done: true };
   }
   return null;

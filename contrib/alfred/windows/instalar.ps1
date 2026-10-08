@@ -34,6 +34,7 @@ $Files = @(
   "windows/alfred-celular.cmd",
   "windows/alfred-terminal.cmd",
   "windows/desligar-com-o-windows.cmd",
+  "windows/diagnostico.cmd",
   "windows/iniciar-alfred.cmd",
   "windows/instalar.ps1",
   "windows/ligar-com-o-windows.cmd"
@@ -107,6 +108,26 @@ if ($major -lt 22) {
   return
 }
 Say "        Node.js $major pronto." "Green"
+
+# Cerebro: sem OmniRoute nem chave da OpenAI, o Alfred usa o Claude Code deste PC.
+$claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
+$hasClaude = (Get-Command claude -ErrorAction SilentlyContinue) -or (Test-Path $claudeExe)
+if (-not $hasClaude) {
+  Say ""
+  Say "  O Alfred precisa de um 'cerebro'. O mais simples e o Claude Code (plano Pro ou Max)." "Yellow"
+  $answer = Read-Host "  Instalar o Claude Code agora? (S/N)"
+  if ($answer -match "^[sSyY]") {
+    try {
+      Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
+      Say "        Claude Code instalado. Falta entrar na sua conta (uma vez so):" "Green"
+      Say "        abra um PowerShell NOVO, digite  claude  e siga o login no navegador."
+    } catch {
+      Say "  Nao consegui instalar o Claude Code: $($_.Exception.Message)" "Red"
+    }
+  } else {
+    Say "  Tudo bem. Outra opcao: coloque OPENAI_API_KEY no arquivo $Dest\alfred.env" "DarkGray"
+  }
+}
 
 # 3. Atalho e abertura
 Say "  [3/3] Criando o atalho 'Alfred' na Area de Trabalho..."

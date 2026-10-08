@@ -3,17 +3,27 @@
 
 import { spawn } from "node:child_process";
 import {
+  OPENAI_CHAT_URL,
   buildChatCall,
   buildClaudeCommand,
   buildClaudePrompt,
+  claudeCandidates,
   createSseParser,
   parseClaudeLine,
 } from "./lib.mjs";
 
 export const BRAIN_LABELS = { omniroute: "OmniRoute", openai: "OpenAI", claude: "Claude" };
+export const FIRST_TOKEN_TIMEOUT_MS = 90_000;
+
+// Technical logs go to stderr for the server; the terminal Alfred sets ALFRED_QUIET=1.
+const log = (...args) => {
+  if (process.env.ALFRED_QUIET !== "1") console.error(...args);
+};
 
 /** An error whose message is safe to show to the user. */
 export class BrainError extends Error {}
+
+const LOGIN_HINT = "O Claude Code não está logado: abra o terminal, rode `claude` e faça o login (precisa de plano Pro ou Max).";
 
 async function omnirouteAnswers(config) {
   try {
@@ -27,38 +37,64 @@ async function omnirouteAnswers(config) {
   }
 }
 
-function claudeAnswers(config) {
+/** Runs `<bin> --version`; resolves the version line or null. */
+function claudeVersion(config, bin) {
   return new Promise((resolve) => {
+    let child;
     try {
-      const child = spawn(config.claudeBin, ["--version"], {
-        shell: process.platform === "win32",
-        stdio: "ignore",
-      });
-      const timer = setTimeout(() => {
-        child.kill();
-        resolve(false);
-      }, 8000);
-      child.on("error", () => {
-        clearTimeout(timer);
-        resolve(false);
-      });
-      child.on("exit", (code) => {
-        clearTimeout(timer);
-        resolve(code === 0);
+      child = spawn(bin, ["--version"], {
+        shell: buildClaudeCommand(config, process.platform, bin).shell,
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
       });
     } catch {
-      resolve(false);
+      return resolve(null);
     }
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 15000);
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? out.trim().split(/\r?\n/)[0] || "?" : null);
+    });
   });
 }
 
-/** Resolves "auto": OmniRoute if it answers, else OpenAI with a key, else Claude Code if installed. */
+let claudeLookup = null;
+/** Finds a working Claude Code: `{ bin, version }` or null. Memoized per process. */
+export function findClaude(config) {
+  claudeLookup ??= (async () => {
+    for (const bin of claudeCandidates(config)) {
+      const version = await claudeVersion(config, bin);
+      if (version) return { bin, version };
+    }
+    return null;
+  })();
+  return claudeLookup;
+}
+
+/**
+ * Resolves "auto": OmniRoute if it answers, else OpenAI with a key, else Claude Code if
+ * installed. `found` is false when nothing is available (the brain then falls back to OmniRoute
+ * and every question fails with a hint).
+ */
+export async function detectBrainInfo(config) {
+  if (config.brain !== "auto") return { brain: config.brain, found: true };
+  if (await omnirouteAnswers(config)) return { brain: "omniroute", found: true };
+  if (config.openaiKey) return { brain: "openai", found: true };
+  if (await findClaude(config)) return { brain: "claude", found: true };
+  return { brain: "omniroute", found: false };
+}
+
 export async function detectBrain(config) {
-  if (config.brain !== "auto") return config.brain;
-  if (await omnirouteAnswers(config)) return "omniroute";
-  if (config.openaiKey) return "openai";
-  if (await claudeAnswers(config)) return "claude";
-  return "omniroute";
+  return (await detectBrainInfo(config)).brain;
 }
 
 async function* streamChatCompletions(config, brain, messages, signal) {
@@ -76,20 +112,21 @@ async function* streamChatCompletions(config, brain, messages, signal) {
     });
   } catch (err) {
     if (signal?.aborted) return;
-    console.error(`[alfred] ${brain} unreachable:`, err?.message);
+    log(`[alfred] ${brain} unreachable:`, err?.message);
     throw new BrainError(
       brain === "openai"
         ? "Não consegui falar com a OpenAI. Confira a internet."
-        : "Não consegui falar com o OmniRoute. Ele está rodando?"
+        : "Não consegui falar com o OmniRoute. Ele está rodando? Rode o diagnóstico para ver outras opções."
     );
   }
   if (!res.ok || !res.body) {
-    console.error(`[alfred] ${brain} HTTP`, res.status, await res.text().catch(() => ""));
+    log(`[alfred] ${brain} HTTP`, res.status, await res.text().catch(() => ""));
     if (res.status === 401 || res.status === 403) {
       throw new BrainError(
         brain === "openai" ? "A OpenAI recusou a chave (OPENAI_API_KEY)." : "O OmniRoute recusou a chave (OMNIROUTE_API_KEY)."
       );
     }
+    if (res.status === 429) throw new BrainError(`${BRAIN_LABELS[brain]}: limite de uso ou sem crédito (HTTP 429).`);
     throw new BrainError(`${BRAIN_LABELS[brain]} respondeu com erro (${res.status}).`);
   }
   const parse = createSseParser();
@@ -101,8 +138,22 @@ async function* streamChatCompletions(config, brain, messages, signal) {
   }
 }
 
+function claudeFailure(detail) {
+  if (/log ?in|auth|credential|api key|unauthori[sz]ed|oauth/i.test(detail)) return LOGIN_HINT;
+  if (/credit|billing|quota|usage limit|rate limit/i.test(detail)) {
+    return "O Claude Code atingiu o limite de uso do seu plano. Tente mais tarde.";
+  }
+  return "O Claude Code não respondeu. Rode o diagnóstico para ver o motivo.";
+}
+
 async function* streamClaude(config, messages, signal) {
-  const cmd = buildClaudeCommand(config);
+  const found = await findClaude(config);
+  if (!found) {
+    throw new BrainError(
+      "Não encontrei o Claude Code neste PC. Instale com: irm https://claude.ai/install.ps1 | iex (no PowerShell) e rode `claude` uma vez para entrar."
+    );
+  }
+  const cmd = buildClaudeCommand(config, process.platform, found.bin);
   const prompt = buildClaudePrompt(config, messages, { personaInArgs: cmd.personaInArgs });
   let child;
   try {
@@ -112,7 +163,7 @@ async function* streamClaude(config, messages, signal) {
       windowsHide: true,
     });
   } catch {
-    throw new BrainError("Não encontrei o Claude Code (comando `claude`).");
+    throw new BrainError("Não consegui abrir o Claude Code.");
   }
   const onAbort = () => child.kill();
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -136,7 +187,10 @@ async function* streamClaude(config, messages, signal) {
       for (const line of lines) {
         const event = parseClaudeLine(line);
         if (!event) continue;
-        if (event.error) throw new BrainError(event.error);
+        if (event.error) {
+          log("[alfred] claude error:", event.detail || event.error);
+          throw new BrainError(claudeFailure(`${event.detail ?? ""} ${stderr}`));
+        }
         if (event.text) {
           gotText = true;
           yield event.text;
@@ -145,14 +199,10 @@ async function* streamClaude(config, messages, signal) {
     }
     const code = await exited;
     if (signal?.aborted) return;
-    if (spawnError) throw new BrainError("Não encontrei o Claude Code (comando `claude`).");
+    if (spawnError) throw new BrainError("Não consegui abrir o Claude Code.");
     if (!gotText) {
-      console.error("[alfred] claude exited", code, stderr.trim());
-      throw new BrainError(
-        /log ?in|auth|credential/i.test(stderr)
-          ? "O Claude Code não está logado. Rode `claude` uma vez no terminal para entrar."
-          : "O Claude Code não respondeu."
-      );
+      log("[alfred] claude exited", code, stderr.trim());
+      throw new BrainError(claudeFailure(stderr));
     }
   } finally {
     signal?.removeEventListener("abort", onAbort);
@@ -160,8 +210,104 @@ async function* streamClaude(config, messages, signal) {
   }
 }
 
-/** Streams Alfred's reply as text deltas. Throws BrainError with a user-safe message. */
-export function streamReply(config, brain, messages, { signal } = {}) {
-  if (brain === "claude") return streamClaude(config, messages, signal);
-  return streamChatCompletions(config, brain, messages, signal);
+/**
+ * Streams Alfred's reply as text deltas. Throws BrainError with a user-safe message, including
+ * when no text arrives within `firstTokenMs` (so a stuck brain never leaves the user waiting).
+ */
+export async function* streamReply(config, brain, messages, { signal, firstTokenMs = FIRST_TOKEN_TIMEOUT_MS } = {}) {
+  const ctl = new AbortController();
+  const forward = () => ctl.abort();
+  if (signal?.aborted) return;
+  signal?.addEventListener("abort", forward, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctl.abort();
+  }, firstTokenMs);
+  const timeoutError = () =>
+    new BrainError(
+      `${BRAIN_LABELS[brain]} não respondeu em ${Math.round(firstTokenMs / 1000)} s. Rode o diagnóstico para ver o motivo.`
+    );
+  try {
+    const inner =
+      brain === "claude" ? streamClaude(config, messages, ctl.signal) : streamChatCompletions(config, brain, messages, ctl.signal);
+    for await (const text of inner) {
+      clearTimeout(timer);
+      yield text;
+    }
+    if (timedOut) throw timeoutError();
+  } catch (err) {
+    if (timedOut) throw timeoutError();
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forward);
+  }
+}
+
+// ---------- Diagnóstico ----------
+
+/** Checks each brain for real. Every entry: `{ ok, detail, fix? }`. */
+export async function checkBrains(config, { deep = true } = {}) {
+  const result = {};
+
+  try {
+    const res = await fetch(`${config.baseUrl}/models`, {
+      headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
+      signal: AbortSignal.timeout(4000),
+    });
+    result.omniroute = res.ok
+      ? { ok: true, detail: `respondendo em ${config.baseUrl}` }
+      : {
+          ok: false,
+          detail: `respondeu HTTP ${res.status}`,
+          fix: res.status === 401 || res.status === 403 ? "Coloque a chave do OmniRoute em OMNIROUTE_API_KEY." : undefined,
+        };
+  } catch {
+    result.omniroute = { ok: false, detail: `não está rodando em ${config.baseUrl}`, fix: "Opcional: ligue o OmniRoute se quiser usá-lo." };
+  }
+
+  if (!config.openaiKey) {
+    result.openai = { ok: false, detail: "sem chave", fix: "Opcional: coloque OPENAI_API_KEY no alfred.env (platform.openai.com → API keys)." };
+  } else {
+    try {
+      const res = await fetch(OPENAI_CHAT_URL.replace("/chat/completions", "/models"), {
+        headers: { authorization: `Bearer ${config.openaiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      result.openai = res.ok
+        ? { ok: true, detail: "chave válida" }
+        : { ok: false, detail: `a OpenAI recusou a chave (HTTP ${res.status})`, fix: "Confira a OPENAI_API_KEY e se há crédito na conta." };
+    } catch {
+      result.openai = { ok: false, detail: "sem resposta da OpenAI", fix: "Confira a internet." };
+    }
+  }
+
+  const claude = await findClaude(config);
+  if (!claude) {
+    result.claude = {
+      ok: false,
+      detail: "Claude Code não encontrado",
+      fix: "Instale no PowerShell: irm https://claude.ai/install.ps1 | iex — depois feche e abra o terminal e rode `claude` uma vez para entrar (plano Pro ou Max).",
+    };
+  } else if (!deep) {
+    result.claude = { ok: true, detail: `${claude.version} (${claude.bin})` };
+  } else {
+    try {
+      let text = "";
+      for await (const delta of streamReply(config, "claude", [{ role: "user", content: "Responda apenas: ok" }], {
+        firstTokenMs: 60_000,
+      })) {
+        text += delta;
+      }
+      result.claude = { ok: true, detail: `${claude.version} — respondeu "${text.trim().slice(0, 40)}"` };
+    } catch (err) {
+      result.claude = {
+        ok: false,
+        detail: `${claude.version} encontrado, mas não respondeu`,
+        fix: err instanceof BrainError ? err.message : "Rode `claude` no terminal para ver o erro.",
+      };
+    }
+  }
+  return result;
 }

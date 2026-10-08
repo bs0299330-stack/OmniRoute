@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, detectBrain, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, detectBrainInfo, streamReply } from "./brain.mjs";
 import {
   buildPhoneLink,
   buildTtsRequest,
@@ -44,8 +44,13 @@ if (wantTunnel && !config.accessToken) {
 let brain = null; // resolved at startup ("auto" → the first brain that answers)
 let brainReady = null;
 
+let brainFound = true;
+
 function getBrain() {
-  brainReady ??= detectBrain(config).then((found) => (brain = found));
+  brainReady ??= detectBrainInfo(config).then((info) => {
+    brainFound = info.found;
+    return (brain = info.brain);
+  });
   return brainReady;
 }
 
@@ -144,6 +149,13 @@ async function handleChat(req, res) {
   res.on("close", () => controller.abort());
 
   const current = await getBrain();
+  if (!brainFound) {
+    brainReady = null; // procura de novo na próxima pergunta (ex.: o Claude Code acabou de ser instalado)
+    return sendJson(res, 503, {
+      error:
+        "O Alfred está sem cérebro. Instale o Claude Code (irm https://claude.ai/install.ps1 | iex e depois rode claude para entrar), ou coloque OPENAI_API_KEY no alfred.env, ou ligue o OmniRoute. O diagnostico.cmd testa tudo.",
+    });
+  }
   const stream = streamReply(config, current, check.messages, { signal: controller.signal });
   let first;
   try {
@@ -188,7 +200,8 @@ const server = createServer(async (req, res) => {
       await getBrain();
       return sendJson(res, 200, {
         ok: true,
-        brain: brain ? BRAIN_LABELS[brain] : null,
+        brain: brain && brainFound ? BRAIN_LABELS[brain] : null,
+        brainFound,
         model: brain === "claude" ? "Claude Code" : brain === "openai" ? config.openaiModel : config.model,
         auth: !!config.accessToken,
         tts: config.ttsProvider
@@ -218,6 +231,13 @@ function lanUrls(port) {
 
 async function announceBrain() {
   const found = await getBrain();
+  if (!brainFound) {
+    console.warn("   ⚠️  Nenhum cérebro funcionando: o site abre, mas não vai responder.");
+    console.warn("      1) Claude: no PowerShell, irm https://claude.ai/install.ps1 | iex — depois rode `claude` e entre.");
+    console.warn("      2) OpenAI: OPENAI_API_KEY no alfred.env.   3) OmniRoute: deixe-o ligado.");
+    console.warn("      Para testar tudo: windows\\diagnostico.cmd (ou node cli.mjs --diagnostico).");
+    return;
+  }
   const detail = {
     omniroute: `OmniRoute em ${config.baseUrl} (modelo "${config.model}")`,
     openai: `OpenAI (modelo "${config.openaiModel}")`,

@@ -159,3 +159,48 @@ test("Windows installer downloads every Alfred file", async () => {
     .sort();
   assert.deepEqual([...listed].sort(), expected);
 });
+
+test("Claude Code lookup: PATH first, then the native installer's claude.exe (run without cmd.exe)", async () => {
+  const { claudeCandidates } = await import("../../contrib/alfred/lib.mjs");
+  const config = loadConfig({});
+  assert.deepEqual(claudeCandidates(config, "win32", { USERPROFILE: "C:\\Users\\Ana" }), [
+    "claude",
+    "C:\\Users\\Ana\\.local\\bin\\claude.exe",
+  ]);
+  assert.deepEqual(claudeCandidates(config, "linux", { HOME: "/home/ana" }), ["claude", "/home/ana/.local/bin/claude"]);
+  assert.deepEqual(claudeCandidates(loadConfig({ ALFRED_CLAUDE_BIN: "/opt/c" }), "linux", {}), ["/opt/c"]);
+  const exe = buildClaudeCommand(config, "win32", "C:\\Users\\Ana\\.local\\bin\\claude.exe");
+  assert.equal(exe.shell, false);
+  assert.equal(exe.personaInArgs, true);
+  assert.ok(exe.args.includes(""), "empty --tools value passed directly");
+});
+
+test("parseClaudeLine keeps the error detail (e.g. not logged in)", () => {
+  const line = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: "Invalid API key · Please run /login" });
+  assert.deepEqual(parseClaudeLine(line), {
+    error: "O Claude Code não conseguiu responder.",
+    detail: "Invalid API key · Please run /login",
+  });
+});
+
+test("streamReply gives up with a clear message when the brain never answers", async () => {
+  const { createServer } = await import("node:http");
+  const { streamReply, BrainError } = await import("../../contrib/alfred/brain.mjs");
+  const hanging = createServer(() => {}); // accepts the request and never answers
+  await new Promise<void>((resolve) => hanging.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = hanging.address() as { port: number };
+  process.env.ALFRED_QUIET = "1";
+  const config = loadConfig({ OMNIROUTE_URL: `http://127.0.0.1:${port}/v1` });
+  const started = Date.now();
+  await assert.rejects(
+    async () => {
+      for await (const _ of streamReply(config, "omniroute", [{ role: "user", content: "oi" }], { firstTokenMs: 300 })) {
+        // no text expected
+      }
+    },
+    (err: unknown) => err instanceof BrainError && /não respondeu em 0 s|não respondeu em/.test((err as Error).message)
+  );
+  assert.ok(Date.now() - started < 5000);
+  hanging.closeAllConnections();
+  hanging.close();
+});

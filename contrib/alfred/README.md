@@ -59,6 +59,7 @@ cd Alfred; git sparse-checkout set contrib/alfred
 | `alfred-terminal.cmd`        | Alfred no terminal                                                    |
 | `ligar-com-o-windows.cmd`    | Faz o Alfred ligar sozinho (minimizado) sempre que você entrar no PC |
 | `desligar-com-o-windows.cmd` | Desfaz o anterior                                                     |
+| `diagnostico.cmd`            | Testa o cérebro, a voz e o microfone e diz exatamente o que falta     |
 
 A janela preta é o Alfred rodando: **fechar a janela desliga o Alfred**. Na primeira vez os
 atalhos criam o `alfred.env`. Abra no Bloco de Notas e preencha `OPENAI_API_KEY=` para ter a voz
@@ -113,6 +114,21 @@ e dois Ctrl+C saem.
   `brew install sox`; Linux: `apt install sox`) e de `OPENAI_API_KEY` para transcrever
   (`gpt-4o-mini-transcribe`), ou de `ALFRED_STT_MODEL` com um modelo de transcrição do OmniRoute. Ele
   para de gravar sozinho depois de ~1,6 s de silêncio.
+
+## Abre, mas não responde?
+
+O Alfred precisa de **um cérebro**. Ao abrir, ele avisa quando nenhum está funcionando, e o
+`diagnostico.cmd` (ou `node cli.mjs --diagnostico`, ou `/diagnostico` no terminal) testa cada um
+de verdade. Escolha um:
+
+1. **Claude** (plano Pro ou Max): no PowerShell, `irm https://claude.ai/install.ps1 | iex`. Depois
+   abra um PowerShell novo, rode `claude` e faça o login uma vez. O Alfred encontra o Claude Code
+   mesmo que o terminal ainda não o enxergue (`%USERPROFILE%\.local\bin\claude.exe`).
+2. **OpenAI**: coloque `OPENAI_API_KEY=` no `alfred.env`.
+3. **OmniRoute**: deixe o OmniRoute ligado.
+
+Enquanto espera a resposta, o terminal mostra "pensando… Ns". Se nada chegar em 90 segundos, ele
+desiste e diz o motivo, em vez de ficar travado.
 
 ## Não abre?
 
