@@ -1,4 +1,4 @@
-// Alfred HUD — the particle globe (canvas) and the clock. Browser-only.
+// Alfred HUD — the particle globe, the Gotham skyline, the menu drawer and the clock. Browser-only.
 //
 //   const orb = createOrb(canvas);
 //   orb.setState("idle" | "listening" | "thinking" | "speaking");
@@ -105,31 +105,13 @@ export function createOrb(canvas) {
     ctx.save();
     ctx.translate(R, R);
 
-    // backdrop glow
+    // a faint halo, only when he listens or speaks
     const tone = mix(GRAPHITE, YELLOW, warmth * 0.8);
-    const glow = ctx.createRadialGradient(0, 0, globeR * 0.1, 0, 0, R);
-    glow.addColorStop(0, rgba(tone, 0.1 + level * 0.12));
-    glow.addColorStop(0.55, rgba(tone, 0.03));
+    const glow = ctx.createRadialGradient(0, 0, globeR * 0.2, 0, 0, R);
+    glow.addColorStop(0, rgba(tone, 0.03 + level * 0.1));
     glow.addColorStop(1, rgba(tone, 0));
     ctx.fillStyle = glow;
     ctx.fillRect(-R, -R, size, size);
-
-    // orbit ring with a yellow satellite
-    ctx.save();
-    ctx.scale(1, 0.28);
-    ctx.beginPath();
-    ctx.arc(0, 0, R * 0.9, 0, Math.PI * 2);
-    ctx.setLineDash([2, 7]);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = rgba(GRAPHITE, 0.22);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const sat = yaw * 1.4;
-    ctx.beginPath();
-    ctx.arc(Math.cos(sat) * R * 0.9, Math.sin(sat) * R * 0.9, 4, 0, Math.PI * 2);
-    ctx.fillStyle = rgba(YELLOW, 0.9);
-    ctx.fill();
-    ctx.restore();
 
     // particles
     const tilt = 0.38;
@@ -211,11 +193,11 @@ export function createOrb(canvas) {
   };
 }
 
-/** Keeps `#clock` (HH:MM:SS) and `#date` up to date. */
+/** Keeps `#clock` (HH:MM) and, when given, `#date` up to date. */
 export function startClock(clockEl, dateEl) {
   const tick = () => {
     const now = new Date();
-    if (clockEl) clockEl.textContent = now.toLocaleTimeString("pt-BR");
+    if (clockEl) clockEl.textContent = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     if (dateEl) {
       dateEl.textContent = now
         .toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" })
@@ -225,4 +207,95 @@ export function startClock(clockEl, dateEl) {
   };
   tick();
   return setInterval(tick, 1000);
+}
+
+/** Small seeded PRNG (mulberry32): the same city every time. */
+function seeded(seed) {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Draws a dark city silhouette (two layers of buildings, a few spires and antennas, scattered lit
+ * windows, most of them yellow) into `canvas`, redrawn on resize.
+ */
+export function drawSkyline(canvas, seed = 1939) {
+  const ctx = canvas.getContext("2d");
+  const layers = [
+    { color: "#111115", min: 0.38, max: 0.92, lit: 0.012 },
+    { color: "#09090b", min: 0.18, max: 0.62, lit: 0.026 },
+  ];
+  function render() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (!w || !h) return;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const rand = seeded(seed);
+    const haze = ctx.createLinearGradient(0, 0, 0, h);
+    haze.addColorStop(0, "rgba(130, 130, 140, 0)");
+    haze.addColorStop(1, "rgba(130, 130, 140, 0.07)");
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, 0, w, h);
+    for (const layer of layers) {
+      let x = -8;
+      while (x < w + 8) {
+        const bw = 26 + rand() * 64;
+        const bh = h * (layer.min + rand() * (layer.max - layer.min));
+        const top = h - bh;
+        ctx.fillStyle = layer.color;
+        ctx.fillRect(x, top, bw, bh);
+        const roof = rand();
+        if (roof < 0.16) {
+          ctx.beginPath(); // gothic spire
+          ctx.moveTo(x + bw * 0.28, top);
+          ctx.lineTo(x + bw / 2, top - bh * 0.22);
+          ctx.lineTo(x + bw * 0.72, top);
+          ctx.fill();
+        } else if (roof < 0.3) {
+          ctx.fillRect(x + bw / 2 - 0.75, top - bh * 0.16, 1.5, bh * 0.16); // antenna
+        } else if (roof < 0.46) {
+          ctx.fillRect(x + bw * 0.18, top - bh * 0.07, bw * 0.64, bh * 0.07); // stepped top
+        }
+        for (let wy = top + 7; wy < h - 4; wy += 8) {
+          for (let wx = x + 5; wx < x + bw - 5; wx += 7) {
+            if (rand() < layer.lit) {
+              ctx.fillStyle =
+                rand() < 0.75 ? `rgba(245, 196, 0, ${0.22 + rand() * 0.35})` : "rgba(210, 212, 220, 0.16)";
+              ctx.fillRect(wx, wy, 2, 3);
+            }
+          }
+        }
+        x += bw + rand() * 3;
+      }
+    }
+  }
+  render();
+  new ResizeObserver(render).observe(canvas);
+}
+
+/** The menu drawer: the ≡ button opens it; the scrim, the close button and Esc close it. */
+export function setupDrawer({ button, drawer, scrim }) {
+  const open = (on) => {
+    drawer.hidden = !on;
+    scrim.hidden = !on;
+    button.setAttribute("aria-expanded", String(on));
+    if (on) drawer.querySelector("[data-close]")?.focus();
+    else button.focus();
+  };
+  button.addEventListener("click", () => open(drawer.hidden));
+  scrim.addEventListener("click", () => open(false));
+  drawer.querySelector("[data-close]")?.addEventListener("click", () => open(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !drawer.hidden) open(false);
+  });
+  return { open };
 }
