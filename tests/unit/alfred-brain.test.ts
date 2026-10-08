@@ -138,3 +138,24 @@ test("isAuthorized compares the bearer token exactly", () => {
   assert.equal(isAuthorized(config, "Bearer s3cretX"), false);
   assert.equal(isAuthorized(config, undefined), false);
 });
+
+test("Windows installer downloads every Alfred file", async () => {
+  const { readFileSync, readdirSync, statSync } = await import("node:fs");
+  const { join, relative } = await import("node:path");
+  const root = "contrib/alfred";
+  const listed = [
+    ...readFileSync(join(root, "windows/instalar.ps1"), "utf8")
+      .split("$Files = @(")[1]
+      .split(")")[0]
+      .matchAll(/"([^"]+)"/g),
+  ].map((m) => m[1]);
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? walk(path) : [relative(root, path).replaceAll("\\", "/")];
+    });
+  const expected = walk(root)
+    .filter((f) => !f.startsWith("claude/dist/") && !f.startsWith(".") && f !== "alfred.env")
+    .sort();
+  assert.deepEqual([...listed].sort(), expected);
+});
