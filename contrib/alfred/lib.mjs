@@ -43,6 +43,9 @@ export const OPENAI_TTS_VOICES = Object.freeze([
   "shimmer",
 ]);
 
+// Values that may reach a command line on Windows (spawned through cmd.exe).
+const SAFE_ARG = /^[\w.:\-[\]]{1,80}$/;
+
 function parseNumber(value, fallback, min, max) {
   const n = Number.parseFloat(String(value ?? ""));
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
@@ -64,6 +67,12 @@ export function loadConfig(env = process.env) {
     accessToken: env.ALFRED_TOKEN || "",
     userName: env.ALFRED_USER_NAME || "",
     systemPrompt: env.ALFRED_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
+    // "auto" picks OmniRoute if it answers, else OpenAI (OPENAI_API_KEY), else Claude Code.
+    brain: ["omniroute", "openai", "claude"].includes(env.ALFRED_BRAIN) ? env.ALFRED_BRAIN : "auto",
+    openaiModel: env.ALFRED_OPENAI_MODEL || "gpt-4o-mini",
+    claudeBin: env.ALFRED_CLAUDE_BIN || "claude",
+    claudeModel: SAFE_ARG.test(env.ALFRED_CLAUDE_MODEL || "") ? env.ALFRED_CLAUDE_MODEL : "",
+    sttModel: env.ALFRED_STT_MODEL || "",
     ...resolveTts(env),
   };
 }
@@ -185,13 +194,13 @@ export function validateTtsBody(body, config) {
 }
 
 /** URL, headers and body for one TTS call. */
-export function buildTtsRequest(config, text, voice = config.ttsVoice) {
+export function buildTtsRequest(config, text, voice = config.ttsVoice, format = "mp3") {
   const steerable = /gpt-4o.*tts/i.test(config.ttsModel);
   const body = {
     model: config.ttsModel,
     input: text,
     voice,
-    response_format: "mp3",
+    response_format: format,
     // gpt-4o-mini-tts takes its pace from `instructions`; tts-1/tts-1-hd take `speed`.
     ...(steerable ? { instructions: config.ttsInstructions } : { speed: config.ttsSpeed }),
   };
@@ -199,6 +208,130 @@ export function buildTtsRequest(config, text, voice = config.ttsVoice) {
     return { url: OPENAI_TTS_URL, apiKey: config.openaiKey, body };
   }
   return { url: `${config.baseUrl}/audio/speech`, apiKey: config.apiKey, body };
+}
+
+// ---------- Brains ----------
+
+export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
+export const OPENAI_STT_URL = "https://api.openai.com/v1/audio/transcriptions";
+
+/** URL/key/body for an OpenAI-compatible streaming chat (OmniRoute or OpenAI). */
+export function buildChatCall(config, brain, messages, now = new Date()) {
+  const body = buildChatRequest(config, messages, now);
+  if (brain === "openai") {
+    return { url: OPENAI_CHAT_URL, apiKey: config.openaiKey, body: { ...body, model: config.openaiModel } };
+  }
+  return { url: `${config.baseUrl}/chat/completions`, apiKey: config.apiKey, body };
+}
+
+/**
+ * Claude Code (`claude -p`) as the brain. The conversation goes through stdin, so nothing the
+ * user says ever reaches a command line. On Windows `claude` is a .cmd shim that needs cmd.exe,
+ * so only constant, validated arguments are passed there and the persona rides in the prompt.
+ */
+export function buildClaudeCommand(config, platform = process.platform) {
+  const args = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+    "--no-session-persistence",
+    "--tools",
+    platform === "win32" ? '""' : "",
+  ];
+  if (config.claudeModel) args.push("--model", config.claudeModel);
+  const personaInArgs = platform !== "win32";
+  if (personaInArgs) args.push("--system-prompt", buildSystemPrompt(config));
+  return { command: config.claudeBin, args, shell: platform === "win32", personaInArgs };
+}
+
+/** The stdin prompt for `claude -p`: (persona) + transcript + the new message. */
+export function buildClaudePrompt(config, messages, { personaInArgs = true, now = new Date() } = {}) {
+  const lines = [];
+  if (!personaInArgs) lines.push(buildSystemPrompt(config, now), "");
+  const history = messages.slice(0, -1);
+  if (history.length) {
+    lines.push("Conversa até agora:");
+    for (const m of history) lines.push(`${m.role === "user" ? "Usuário" : "Alfred"}: ${m.content}`);
+    lines.push("");
+  }
+  lines.push(
+    `Nova mensagem do usuário: ${messages[messages.length - 1].content}`,
+    "",
+    "Responda como Alfred, só com a fala dele."
+  );
+  return lines.join("\n");
+}
+
+/** One stdout line of `claude -p --output-format stream-json` → `{ text }`, `{ done }`, `{ error }` or null. */
+export function parseClaudeLine(line) {
+  let event;
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (event?.type === "stream_event") {
+    const delta = event.event?.delta;
+    if (event.event?.type === "content_block_delta" && delta?.type === "text_delta" && delta.text) {
+      return { text: delta.text };
+    }
+    return null;
+  }
+  if (event?.type === "result") {
+    return event.is_error || event.subtype?.startsWith("error")
+      ? { error: "O Claude Code não conseguiu responder." }
+      : { done: true };
+  }
+  return null;
+}
+
+// ---------- Terminal audio ----------
+
+/** Players tried in order on Linux; all of them play WAV. */
+export const LINUX_PLAYERS = [
+  ["paplay", []],
+  ["aplay", ["-q"]],
+  ["ffplay", ["-nodisp", "-autoexit", "-loglevel", "quiet"]],
+  ["mpv", ["--really-quiet", "--no-video"]],
+];
+
+/**
+ * A long-lived PowerShell that plays one WAV path per stdin line and prints "done" after each:
+ * no per-sentence PowerShell start-up gap, and file paths never touch the script text.
+ */
+export const WINDOWS_PLAYER_SCRIPT = [
+  "$ErrorActionPreference = 'SilentlyContinue'",
+  "while (($line = [Console]::In.ReadLine()) -ne $null) {",
+  "  if ($line.Length -gt 0) { (New-Object Media.SoundPlayer $line).PlaySync() }",
+  "  [Console]::Out.WriteLine('done')",
+  "}",
+].join("; ");
+
+/** sox arguments: record mono 16 kHz WAV, stop after ~1.6 s of silence, at most 60 s. */
+export function soxRecordArgs(outFile) {
+  return [
+    "-q",
+    "-d",
+    "-c",
+    "1",
+    "-r",
+    "16000",
+    "-b",
+    "16",
+    outFile,
+    "silence",
+    "1",
+    "0.1",
+    "2%",
+    "1",
+    "1.6",
+    "2%",
+    "trim",
+    "0",
+    "60",
+  ];
 }
 
 export function isAuthorized(config, headerValue) {

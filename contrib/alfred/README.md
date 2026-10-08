@@ -1,9 +1,17 @@
 # 🎩 Alfred — assistente virtual por voz
 
-Alfred é um assistente pessoal com que você conversa **por voz no navegador** (PC ou celular),
-fora do Claude Code. O "cérebro" é o seu **OmniRoute**: o Alfred envia a conversa para o endpoint
-OpenAI-compatível (`/v1/chat/completions`), então herda todos os provedores, combos e o fallback
-automático que você já configurou.
+Alfred é um assistente pessoal com que você conversa **por voz**, fora do Claude Code, com uma
+interface holográfica (HUD) e três jeitos de usar:
+
+| Onde                   | Como abrir                                   | Microfone            | Voz de IA |
+| ---------------------- | -------------------------------------------- | -------------------- | --------- |
+| Site no seu PC         | `node contrib/alfred/server.mjs`             | sim (Chrome/Edge)    | sim       |
+| Terminal               | `node contrib/alfred/cli.mjs`                | sim (com `sox`)      | sim       |
+| Dentro do app do Claude | Artifact publicado de `claude/index.html`   | ditado do teclado    | não       |
+
+O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
+(herda provedores, combos e fallback), senão a **OpenAI** (com `OPENAI_API_KEY`), senão o
+**Claude**, pelo Claude Code instalado no PC (`claude -p`, sem ferramentas, só conversa).
 
 - Sem dependências: um servidor Node (`server.mjs`) + uma página HTML.
 - Fala → texto pelo navegador (Web Speech API) e texto → fala por uma **voz de IA da OpenAI**
@@ -38,6 +46,26 @@ automático que você já configurou.
 
 4. Abra <http://localhost:20140> no **Chrome ou Edge** desse mesmo computador e permita o microfone.
 
+## Alfred no terminal
+
+```bash
+node contrib/alfred/cli.mjs                  # conversa por texto (+ voz, se configurada)
+node contrib/alfred/cli.mjs --conversa       # mãos livres: ouve, responde, ouve de novo
+node contrib/alfred/cli.mjs --cerebro=claude # força o cérebro (claude, openai, omniroute)
+node contrib/alfred/cli.mjs --sem-voz
+```
+
+Lê o mesmo `alfred.env`. Dentro dele: escreva e aperte Enter; **Enter vazio** ouve uma frase pelo
+microfone; `/conversa`, `/voz`, `/nova`, `/ajuda`, `/sair`. Ctrl+C interrompe a fala ou a resposta,
+e dois Ctrl+C saem.
+
+- **Voz:** com `OPENAI_API_KEY`, ele fala com a voz de IA. No Windows usa o player do próprio
+  sistema (PowerShell), no Mac o `afplay` e no Linux `paplay`, `aplay`, `ffplay` ou `mpv`.
+- **Microfone:** precisa do **sox** (Windows: `winget install ChrisBagwell.SoX`; Mac:
+  `brew install sox`; Linux: `apt install sox`) e de `OPENAI_API_KEY` para transcrever
+  (`gpt-4o-mini-transcribe`), ou de `ALFRED_STT_MODEL` com um modelo de transcrição do OmniRoute. Ele
+  para de gravar sozinho depois de ~1,6 s de silêncio.
+
 ## Não abre?
 
 | Sintoma                                              | Causa / solução                                                                                                                                     |
@@ -45,7 +73,8 @@ automático que você já configurou.
 | "Não é possível acessar esse site" em `localhost`    | O servidor não está rodando **nesse aparelho**. `localhost` é sempre o próprio aparelho: rode o passo 3 no mesmo PC e mantenha o terminal aberto. |
 | Abre no PC mas não no celular                        | O Alfred escuta só no próprio PC por padrão. Veja "Usar no celular" abaixo.                                                                         |
 | `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
-| Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute (`npm run dev` ou `omniroute`) ou ajuste `OMNIROUTE_URL`.                                                              |
+| Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
+| "O Claude Code não está logado"                      | Rode `claude` uma vez no terminal e entre na sua conta.                                                                                            |
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
@@ -108,6 +137,10 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 
 | Variável               | Padrão                       | Descrição                                       |
 | ---------------------- | ---------------------------- | ----------------------------------------------- |
+| `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `openai` ou `claude` (Claude Code)  |
+| `ALFRED_CLAUDE_MODEL`  | —                            | Modelo do Claude Code (`sonnet`, `opus`…)        |
+| `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI              |
+| `ALFRED_STT_MODEL`     | `gpt-4o-mini-transcribe`     | Transcrição do microfone no terminal            |
 | `OMNIROUTE_URL`        | `http://localhost:20128/v1`  | Endpoint OpenAI-compatível do OmniRoute         |
 | `OMNIROUTE_API_KEY`    | —                            | Chave de API do OmniRoute                        |
 | `ALFRED_MODEL`         | `auto`                       | Modelo ou combo (`auto/fast`, `auto/smart`, …)  |
@@ -126,22 +159,28 @@ O navegador só libera o microfone em `localhost` ou **https**. Para acessar de 
 ## Arquitetura
 
 ```
-Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  OmniRoute /v1/chat/completions
+Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | OpenAI | claude -p
           ▲                                       │
           ├────────── SSE {text} ◀────────────────┘
           └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ OpenAI ou OmniRoute /audio/speech (opcional)
 ```
 
-- `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE); testadas em
-  `tests/unit/alfred-lib.test.ts`.
+- `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE, comando do Claude
+  Code, argumentos do sox); testadas em `tests/unit/alfred-lib.test.ts` e `alfred-brain.test.ts`.
+- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, OpenAI ou Claude Code, em streaming.
+  O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
+- `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
+- `public/hud.css` + `public/hud.mjs` — o visual holográfico e o núcleo animado que reage ao
+  estado (em espera, ouvindo, processando, falando) e ao volume da voz de IA.
 - `server.mjs` — HTTP: serve a página, valida, injeta o prompt de sistema e repassa o stream.
 - `public/voice.mjs` — motor de voz compartilhado: limpeza do texto, divisão em frases, escolha da
   voz, fila de fala (navegador ou neural), palavra de ativação e bipes; testado em
   `tests/unit/alfred-voice.test.ts`.
 - `public/index.html` — interface e microfone (máquina de estados: parado → frase → "Alfred…").
 - `claude/index.html` — versão que roda dentro do Claude (Artifact): o cérebro é o Claude, a voz é a
-  do navegador, e o microfone é bloqueado pelo app (use o ditado do teclado). Publicada junto com
-  `public/voice.mjs`.
+  do navegador, e o microfone é bloqueado pelo app (use o ditado do teclado). Antes de publicar,
+  `node contrib/alfred/claude/build.mjs` gera `claude/dist/alfred.html`, um arquivo único com o
+  CSS e os módulos embutidos; esse é o arquivo publicado.
 
 ## Ideias para evoluir
 

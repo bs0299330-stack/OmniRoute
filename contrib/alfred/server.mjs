@@ -12,10 +12,9 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { BRAIN_LABELS, BrainError, detectBrain, streamReply } from "./brain.mjs";
 import {
-  buildChatRequest,
   buildTtsRequest,
-  createSseParser,
   isAuthorized,
   loadConfig,
   ttsVoices,
@@ -29,6 +28,13 @@ const ENV_FILE = join(HERE, "alfred.env");
 // Variables already set in the shell win over the file (loadEnvFile never overrides).
 if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 const config = loadConfig();
+let brain = null; // resolved at startup ("auto" → the first brain that answers)
+let brainReady = null;
+
+function getBrain() {
+  brainReady ??= detectBrain(config).then((found) => (brain = found));
+  return brainReady;
+}
 
 function sendJson(res, status, payload) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -49,19 +55,14 @@ async function readJsonBody(req) {
 const STATIC_FILES = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/voice.mjs": ["voice.mjs", "text/javascript; charset=utf-8"],
+  "/hud.mjs": ["hud.mjs", "text/javascript; charset=utf-8"],
+  "/hud.css": ["hud.css", "text/css; charset=utf-8"],
 };
 
 async function serveStatic(res, [file, type]) {
   const body = await readFile(join(HERE, "public", file));
   res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
   res.end(body);
-}
-
-function omniHeaders() {
-  return {
-    "content-type": "application/json",
-    ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-  };
 }
 
 async function handleTts(req, res) {
@@ -129,24 +130,17 @@ async function handleChat(req, res) {
   const controller = new AbortController();
   res.on("close", () => controller.abort());
 
-  let upstream;
+  const current = await getBrain();
+  const stream = streamReply(config, current, check.messages, { signal: controller.signal });
+  let first;
   try {
-    upstream = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: omniHeaders(),
-      body: JSON.stringify(buildChatRequest(config, check.messages)),
-      signal: controller.signal,
-    });
+    first = await stream.next();
   } catch (err) {
-    console.error("[alfred] OmniRoute unreachable:", err?.message);
-    return sendJson(res, 502, {
-      error: "Não consegui falar com o OmniRoute. Ele está rodando?",
-    });
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    console.error("[alfred] OmniRoute HTTP", upstream.status, await upstream.text().catch(() => ""));
-    return sendJson(res, 502, { error: `O OmniRoute respondeu com erro (${upstream.status}).` });
+    // With "auto", look for a brain again next time (e.g. OmniRoute was stopped).
+    if (config.brain === "auto") brainReady = null;
+    if (!(err instanceof BrainError)) console.error("[alfred] brain error:", err);
+    const message = err instanceof BrainError ? err.message : "O cérebro do Alfred falhou.";
+    return sendJson(res, 502, { error: message });
   }
 
   // Re-emit only the text deltas as a minimal SSE stream for the browser.
@@ -155,18 +149,16 @@ async function handleChat(req, res) {
     "cache-control": "no-cache",
     connection: "keep-alive",
   });
-  const parse = createSseParser();
-  const decoder = new TextDecoder();
   try {
-    for await (const chunk of upstream.body) {
-      const { deltas } = parse(decoder.decode(chunk, { stream: true }));
-      for (const text of deltas) res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    for (let step = first; !step.done; step = await stream.next()) {
+      res.write(`data: ${JSON.stringify({ text: step.value })}\n\n`);
     }
     res.write("data: [DONE]\n\n");
   } catch (err) {
     if (!controller.signal.aborted) {
       console.error("[alfred] stream error:", err?.message);
-      res.write(`data: ${JSON.stringify({ error: "A resposta foi interrompida." })}\n\n`);
+      const message = err instanceof BrainError ? err.message : "A resposta foi interrompida.";
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
     }
   } finally {
     res.end();
@@ -180,9 +172,11 @@ const server = createServer(async (req, res) => {
       return await serveStatic(res, STATIC_FILES[url.pathname]);
     }
     if (req.method === "GET" && url.pathname === "/api/health") {
+      await getBrain();
       return sendJson(res, 200, {
         ok: true,
-        model: config.model,
+        brain: brain ? BRAIN_LABELS[brain] : null,
+        model: brain === "claude" ? "Claude Code" : brain === "openai" ? config.openaiModel : config.model,
         auth: !!config.accessToken,
         tts: config.ttsProvider
           ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config) }
@@ -209,19 +203,28 @@ function lanUrls(port) {
     .map((net) => `http://${net.address}:${port}`);
 }
 
-async function checkOmniRoute() {
-  try {
-    const res = await fetch(`${config.baseUrl}/models`, {
-      headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.ok) console.log("   ✅ OmniRoute respondendo.");
-    else if (res.status === 401 || res.status === 403) {
-      console.warn(`   ⚠️  OmniRoute recusou a chave (HTTP ${res.status}) — confira OMNIROUTE_API_KEY.`);
-    } else console.warn(`   ⚠️  OmniRoute respondeu HTTP ${res.status} em ${config.baseUrl}/models.`);
-  } catch {
-    console.warn(`   ⚠️  OmniRoute não respondeu em ${config.baseUrl} — ele está rodando?`);
-    console.warn("      A página abre mesmo assim, mas as perguntas vão falhar até ele subir.");
+async function announceBrain() {
+  const found = await getBrain();
+  const detail = {
+    omniroute: `OmniRoute em ${config.baseUrl} (modelo "${config.model}")`,
+    openai: `OpenAI (modelo "${config.openaiModel}")`,
+    claude: "Claude, pelo Claude Code instalado neste PC",
+  }[found];
+  console.log(`   cérebro: ${detail}${config.brain === "auto" ? " — escolhido automaticamente" : ""}`);
+  if (found === "omniroute") {
+    try {
+      const res = await fetch(`${config.baseUrl}/models`, {
+        headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) console.log("   ✅ OmniRoute respondendo.");
+      else if (res.status === 401 || res.status === 403) {
+        console.warn(`   ⚠️  OmniRoute recusou a chave (HTTP ${res.status}) — confira OMNIROUTE_API_KEY.`);
+      } else console.warn(`   ⚠️  OmniRoute respondeu HTTP ${res.status} em ${config.baseUrl}/models.`);
+    } catch {
+      console.warn(`   ⚠️  OmniRoute não respondeu em ${config.baseUrl} — ele está rodando?`);
+      console.warn("      Sem ele, use ALFRED_BRAIN=claude (Claude Code) ou OPENAI_API_KEY.");
+    }
   }
 }
 
@@ -243,7 +246,6 @@ server.listen(config.port, config.host, () => {
   if (exposed) {
     for (const url of lanUrls(config.port)) console.log(`   na rede: ${url}`);
   }
-  console.log(`   cérebro: ${config.baseUrl} (modelo "${config.model}")`);
   console.log(
     config.ttsProvider
       ? `   voz de IA: ${config.ttsProvider === "openai" ? "OpenAI" : "OmniRoute"} ${config.ttsModel} (voz "${config.ttsVoice}")`
@@ -252,5 +254,5 @@ server.listen(config.port, config.host, () => {
   if (config.host !== "127.0.0.1" && config.host !== "localhost" && !config.accessToken) {
     console.warn("   ⚠️  Exposto na rede sem ALFRED_TOKEN — defina um token de acesso.");
   }
-  checkOmniRoute();
+  announceBrain();
 });

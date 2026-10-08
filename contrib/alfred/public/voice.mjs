@@ -167,7 +167,13 @@ export function matchWakeWord(transcript) {
  *   chunk is fetched as soon as it is queued, so the next one is ready while the current plays.
  *   A failed chunk falls back to the browser voice.
  */
-export function createSpeaker({ getSettings, fetchNeural = null, onError = () => {} } = {}) {
+export function createSpeaker({
+  getSettings,
+  fetchNeural = null,
+  onError = () => {},
+  onWord = () => {}, // browser voice: a word boundary was reached (drives visualizers)
+  onAudio = () => {}, // AI voice: the <audio> element about to play (for an AnalyserNode)
+} = {}) {
   const synth = typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis : null;
   const settings = () => ({ ...VOICE_DEFAULTS, ...(getSettings ? getSettings() : {}) });
   let voices = [];
@@ -227,6 +233,7 @@ export function createSpeaker({ getSettings, fetchNeural = null, onError = () =>
     u.pitch = s.pitch;
     u.onend = onDone;
     u.onerror = onDone;
+    u.onboundary = () => onWord();
     if (synth.paused) synth.resume();
     synth.speak(u);
   }
@@ -268,6 +275,9 @@ export function createSpeaker({ getSettings, fetchNeural = null, onError = () =>
           await new Promise((done) => {
             const player = new Audio(url);
             currentAudio = player;
+            try {
+              onAudio(player);
+            } catch {}
             player.onended = done;
             player.onerror = done;
             player.play().catch(done);
