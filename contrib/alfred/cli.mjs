@@ -403,6 +403,7 @@ async function diagnose() {
   for (const [name, check] of Object.entries(brains)) {
     console.log(`  ${mark(check.ok)} Cérebro ${BRAIN_LABELS[name]}: ${check.detail}`);
     if (!check.ok && check.fix) console.log(dim(`      → ${check.fix}`));
+    if (!check.ok && check.raw) console.log(dim(`      Mensagem do ${BRAIN_LABELS[name]}: ${check.raw}`));
   }
   const working = Object.entries(brains).filter(([, c]) => c.ok).map(([n]) => BRAIN_LABELS[n]);
   console.log(

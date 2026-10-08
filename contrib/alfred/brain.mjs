@@ -20,8 +20,13 @@ const log = (...args) => {
   if (process.env.ALFRED_QUIET !== "1") console.error(...args);
 };
 
-/** An error whose message is safe to show to the user. */
-export class BrainError extends Error {}
+/** An error whose message is safe to show to the user; `detail` keeps the raw cause for diagnostics. */
+export class BrainError extends Error {
+  constructor(message, detail = "") {
+    super(message);
+    this.detail = String(detail).replace(/\s+/g, " ").trim().slice(0, 300);
+  }
+}
 
 const LOGIN_HINT = "O Claude Code não está logado: abra o terminal, rode `claude` e faça o login (precisa de plano Pro ou Max).";
 
@@ -189,7 +194,7 @@ async function* streamClaude(config, messages, signal) {
         if (!event) continue;
         if (event.error) {
           log("[alfred] claude error:", event.detail || event.error);
-          throw new BrainError(claudeFailure(`${event.detail ?? ""} ${stderr}`));
+          throw new BrainError(claudeFailure(`${event.detail ?? ""} ${stderr}`), event.detail || stderr);
         }
         if (event.text) {
           gotText = true;
@@ -202,7 +207,7 @@ async function* streamClaude(config, messages, signal) {
     if (spawnError) throw new BrainError("Não consegui abrir o Claude Code.");
     if (!gotText) {
       log("[alfred] claude exited", code, stderr.trim());
-      throw new BrainError(claudeFailure(stderr));
+      throw new BrainError(claudeFailure(stderr), stderr || `saiu com código ${code}`);
     }
   } finally {
     signal?.removeEventListener("abort", onAbort);
@@ -306,6 +311,7 @@ export async function checkBrains(config, { deep = true } = {}) {
         ok: false,
         detail: `${claude.version} encontrado, mas não respondeu`,
         fix: err instanceof BrainError ? err.message : "Rode `claude` no terminal para ver o erro.",
+        raw: err instanceof BrainError ? err.detail : String(err?.message ?? err),
       };
     }
   }
