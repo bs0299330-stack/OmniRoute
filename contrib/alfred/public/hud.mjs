@@ -301,91 +301,134 @@ export function setupDrawer({ button, drawer, scrim }) {
 }
 
 /**
- * "Tema do Alfred": an original ~6.5 s dark intro synthesized live (no audio file): a low drone
- * opening up, accelerating heartbeat hits, a creeping minor-second string tension and a final boom.
+ * "Tema do Alfred": an original ~10 s gothic orchestral intro, synthesized live (no audio file).
+ * D minor: a low string ostinato and timpani roll, a dark choir pad, a brass motif
+ * (D–F–E–D, A–Bb–A, then up to D) and a final tutti hit with a cathedral bell. The melody is
+ * original, not taken from any film score.
  * Returns `{ done: Promise, stop() }`; `output` lets the caller tap it (e.g. an AnalyserNode).
  */
 export function playGothamTheme(ctx, output = ctx.destination) {
   const t0 = ctx.currentTime + 0.05;
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(0.9, t0);
-  master.gain.setValueAtTime(0.9, t0 + 5.6);
-  master.gain.linearRampToValueAtTime(0.0001, t0 + 6.5);
-  master.connect(output);
+  const END = 10.2;
+  const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
   const nodes = [];
   const keep = (n) => (nodes.push(n), n);
 
-  // drone: two detuned saws through a slowly opening low-pass
-  const filter = keep(ctx.createBiquadFilter());
-  filter.type = "lowpass";
-  filter.frequency.setValueAtTime(140, t0);
-  filter.frequency.exponentialRampToValueAtTime(1100, t0 + 4.6);
-  const droneGain = keep(ctx.createGain());
-  droneGain.gain.setValueAtTime(0.0001, t0);
-  droneGain.gain.exponentialRampToValueAtTime(0.22, t0 + 2.5);
-  filter.connect(droneGain).connect(master);
-  for (const f of [55, 55.4, 27.5]) {
-    const o = keep(ctx.createOscillator());
-    o.type = "sawtooth";
-    o.frequency.value = f;
-    o.connect(filter);
-    o.start(t0);
-    o.stop(t0 + 6.6);
+  const master = keep(ctx.createGain());
+  master.gain.setValueAtTime(0.0001, t0);
+  master.gain.exponentialRampToValueAtTime(0.8, t0 + 0.6);
+  master.gain.setValueAtTime(0.8, t0 + END - 1.4);
+  master.gain.exponentialRampToValueAtTime(0.0001, t0 + END);
+  // a little hall: feedback delay as a cheap reverb
+  const wet = keep(ctx.createGain());
+  wet.gain.value = 0.28;
+  const delay = keep(ctx.createDelay(1));
+  delay.delayTime.value = 0.19;
+  const fb = keep(ctx.createGain());
+  fb.gain.value = 0.45;
+  const damp = keep(ctx.createBiquadFilter());
+  damp.type = "lowpass";
+  damp.frequency.value = 2200;
+  master.connect(output);
+  master.connect(delay);
+  delay.connect(damp).connect(fb).connect(delay);
+  damp.connect(wet).connect(output);
+
+  // one "instrument" voice: oscillators → low-pass → envelope
+  function voice({ midi, at, len, type = "sawtooth", gain = 0.1, cutoff = 1200, attack = 0.04, release = 0.3, detune = [0], vibrato = 0 }) {
+    const start = t0 + at;
+    const stop = start + len + release;
+    const env = keep(ctx.createGain());
+    env.gain.setValueAtTime(0.0001, start);
+    env.gain.exponentialRampToValueAtTime(gain, start + attack);
+    env.gain.setValueAtTime(gain, start + len);
+    env.gain.exponentialRampToValueAtTime(0.0001, stop);
+    const lp = keep(ctx.createBiquadFilter());
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(cutoff * 0.5, start);
+    lp.frequency.exponentialRampToValueAtTime(cutoff, start + attack * 2 + 0.05);
+    lp.connect(env).connect(master);
+    for (const cents of detune) {
+      const o = keep(ctx.createOscillator());
+      o.type = type;
+      o.frequency.value = hz(midi);
+      o.detune.value = cents;
+      if (vibrato) {
+        const lfo = keep(ctx.createOscillator());
+        const depth = keep(ctx.createGain());
+        lfo.frequency.value = 5;
+        depth.gain.value = vibrato;
+        lfo.connect(depth).connect(o.frequency);
+        lfo.start(start);
+        lfo.stop(stop);
+      }
+      o.connect(lp);
+      o.start(start);
+      o.stop(stop);
+    }
   }
 
-  // strings: minor second (A–Bb), creeping in
-  const strings = keep(ctx.createGain());
-  strings.gain.setValueAtTime(0.0001, t0 + 1.8);
-  strings.gain.exponentialRampToValueAtTime(0.05, t0 + 4.6);
-  strings.gain.exponentialRampToValueAtTime(0.0001, t0 + 5.2);
-  strings.connect(master);
-  for (const f of [440, 466.16]) {
-    const o = keep(ctx.createOscillator());
-    o.type = "sawtooth";
-    o.frequency.value = f;
-    const lfo = keep(ctx.createOscillator());
-    const depth = keep(ctx.createGain());
-    lfo.frequency.value = 5.5;
-    depth.gain.value = 3;
-    lfo.connect(depth).connect(o.frequency);
-    o.connect(strings);
-    o.start(t0);
-    lfo.start(t0);
-    o.stop(t0 + 5.3);
-    lfo.stop(t0 + 5.3);
-  }
-
-  // heartbeat hits, accelerating, then the final boom
-  const hit = (at, size) => {
+  const timpani = (at, size = 1) => {
     const o = keep(ctx.createOscillator());
     const g = keep(ctx.createGain());
-    o.frequency.setValueAtTime(110 * size, t0 + at);
-    o.frequency.exponentialRampToValueAtTime(38, t0 + at + 0.35 * size);
+    o.frequency.setValueAtTime(hz(38) * 1.05, t0 + at); // D2
+    o.frequency.exponentialRampToValueAtTime(hz(38) * 0.95, t0 + at + 0.6);
     g.gain.setValueAtTime(0.0001, t0 + at);
-    g.gain.exponentialRampToValueAtTime(0.9 * Math.min(1, size), t0 + at + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.5 * size);
+    g.gain.exponentialRampToValueAtTime(0.55 * size, t0 + at + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.9 * size);
     o.connect(g).connect(master);
     o.start(t0 + at);
-    o.stop(t0 + at + 0.6 * size + 0.05);
+    o.stop(t0 + at + size + 0.1);
   };
-  [0.2, 1.5, 2.6, 3.4, 3.95, 4.35].forEach((at) => hit(at, 1));
-  hit(4.85, 2.2);
-  const len = Math.floor(ctx.sampleRate * 1.2);
-  const noise = ctx.createBuffer(1, len, ctx.sampleRate);
-  const data = noise.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.25));
-  const burst = keep(ctx.createBufferSource());
-  burst.buffer = noise;
-  const burstGain = keep(ctx.createGain());
-  burstGain.gain.value = 0.35;
-  burst.connect(burstGain).connect(master);
-  burst.start(t0 + 4.85);
+
+  // low strings ostinato (D2 D2 D2 F2 / D2 D2 Bb1 A1), steady eighths
+  const ostinato = [38, 38, 38, 41, 38, 38, 34, 33];
+  for (let i = 0; i < 28; i++) {
+    voice({ midi: ostinato[i % 8], at: 0.4 + i * 0.25, len: 0.16, gain: 0.07, cutoff: 700, attack: 0.02, release: 0.12, detune: [-6, 6] });
+  }
+  // timpani: pulse, then a roll into the climax
+  [0.4, 1.4, 2.4, 3.4, 4.4, 5.4].forEach((at) => timpani(at));
+  for (let r = 0; r < 14; r++) timpani(6.4 + r * 0.07, 0.35 + r * 0.03);
+
+  // dark choir pad: D minor, "ah" (triangles with vibrato), swelling
+  for (const midi of [50, 53, 57, 62]) {
+    voice({ midi, at: 0.6, len: 6.4, type: "triangle", gain: 0.035, cutoff: 1800, attack: 2.2, release: 1.2, detune: [-8, 8], vibrato: 2.5 });
+  }
+
+  // brass motif (original): D–F–E–D | A–Bb–A | F–E–D… then rising to D
+  const brass = [
+    [62, 1.9, 0.45], [65, 2.4, 0.3], [64, 2.75, 0.3], [62, 3.1, 0.8],
+    [69, 4.1, 0.45], [70, 4.6, 0.3], [69, 4.95, 0.9],
+    [65, 6.0, 0.3], [64, 6.35, 0.3], [62, 6.7, 0.3], [69, 7.05, 0.35], [74, 7.45, 1.4],
+  ];
+  for (const [midi, at, len] of brass) {
+    voice({ midi, at, len, gain: 0.09, cutoff: 1600, attack: 0.06, release: 0.35, detune: [-7, 0, 7] });
+    voice({ midi: midi - 12, at, len, gain: 0.06, cutoff: 900, attack: 0.07, release: 0.35, detune: [-5, 5] });
+  }
+
+  // final tutti hit (D minor) + cathedral bell
+  for (const midi of [26, 38, 50, 57, 62, 65, 69, 74]) {
+    voice({ midi, at: 7.45, len: 1.2, gain: 0.05, cutoff: 2000, attack: 0.02, release: 1.4, detune: [-6, 6] });
+  }
+  timpani(7.45, 1.6);
+  for (const [ratio, g] of [[1, 0.12], [2.76, 0.05], [5.4, 0.025]]) {
+    const o = keep(ctx.createOscillator());
+    const env = keep(ctx.createGain());
+    o.type = "sine";
+    o.frequency.value = hz(62) * ratio;
+    env.gain.setValueAtTime(0.0001, t0 + 7.45);
+    env.gain.exponentialRampToValueAtTime(g, t0 + 7.46);
+    env.gain.exponentialRampToValueAtTime(0.0001, t0 + END);
+    o.connect(env).connect(master);
+    o.start(t0 + 7.45);
+    o.stop(t0 + END);
+  }
 
   let timer;
   let finish;
   const done = new Promise((resolve) => {
     finish = resolve;
-    timer = setTimeout(resolve, 6600);
+    timer = setTimeout(resolve, (END + 0.2) * 1000);
   });
   return {
     done,
@@ -399,7 +442,6 @@ export function playGothamTheme(ctx, output = ctx.destination) {
             n.disconnect();
           } catch {}
         }
-        master.disconnect();
       }, 400);
       finish();
     },
