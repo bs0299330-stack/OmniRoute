@@ -314,7 +314,9 @@ export function createSpeaker({
   }
 
   // Plays one audio URL; resolves true when it ends (or is stopped), false when it cannot play.
-  function playUrl(url, maxMs = 30_000) {
+  // A clip that has not started after `startMs` counts as failed and is unloaded, so it can never
+  // start late: Chromium defers media loading in a hidden (minimized or covered) window.
+  function playUrl(url, { startMs = 3000, maxMs = 30_000 } = {}) {
     return new Promise((resolve) => {
       let player;
       try {
@@ -323,19 +325,35 @@ export function createSpeaker({
         return resolve(false);
       }
       let timer = null;
+      let settled = false;
       const finish = (ok) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         if (currentAudio === player) currentAudio = null;
         resolve(ok);
+      };
+      const giveUp = () => {
+        player.onpause = null;
+        try {
+          player.pause();
+          player.removeAttribute("src");
+          player.load();
+        } catch {}
+        finish(false);
       };
       currentAudio = player;
       try {
         onAudio(player);
       } catch {}
+      player.onplaying = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => finish(true), maxMs);
+      };
       player.onended = () => finish(true);
       player.onpause = () => finish(true); // cancel() pauses it
       player.onerror = () => finish(false);
-      timer = setTimeout(() => finish(true), maxMs);
+      timer = setTimeout(giveUp, startMs);
       player.play().catch(() => finish(false));
     });
   }

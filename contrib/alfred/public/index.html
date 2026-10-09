@@ -17,7 +17,7 @@
          esperando “Alfred” ou duas palmas; o menu abre com a tecla M. -->
     <canvas id="skyline" aria-hidden="true"></canvas>
     <main class="stage" aria-label="Alfred">
-      <canvas id="orb" aria-hidden="true" title="Alfred"></canvas>
+      <canvas id="orb" aria-hidden="true"></canvas>
       <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
     </main>
     <p class="notice" id="status" role="alert" hidden></p>
@@ -163,7 +163,7 @@
       if (linkToken) {
         token = decodeURIComponent(linkToken[1]);
         store.set("token", token);
-        history.replaceState(null, "", location.pathname + location.search);
+        window.history.replaceState(null, "", location.pathname + location.search); // `history` aqui é a conversa
       }
       // "voice:v2": the first version stored a lowered pitch that made voices sound robotic.
       let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice:v2", {}) };
@@ -239,13 +239,14 @@
         } catch {}
         if (soundLocked) {
           soundLocked = false;
-          setStatus("");
+          clearStatus(SOUND_LOCKED);
           greetOnce();
         }
       }
 
       // Sem nenhum clique, o navegador pode bloquear o som (e as palmas). O atalho do Alfred abre
       // o Edge já liberado; fora dele, um clique no globo libera.
+      const SOUND_LOCKED = "Clique no globo uma vez para ligar o som do Alfred.";
       let soundLocked = false;
       let greeted = false;
       function greetOnce() {
@@ -261,7 +262,7 @@
         } catch {}
         if (running) return greetOnce();
         soundLocked = true;
-        setStatus("Clique no globo uma vez para ligar o som do Alfred.", true);
+        if ($("status").hidden) setStatus(SOUND_LOCKED, true); // não cobre um aviso mais importante
       }
 
       // Frases fixas: gravadas (voz do Fabio) quando houver arquivo, senão na voz normal.
@@ -280,6 +281,10 @@
         const show = !!(warn && text);
         $("status").textContent = show ? text : "";
         $("status").hidden = !show;
+      }
+      // Apaga o aviso só se ele ainda for aquele (outro problema pode ter aparecido depois).
+      function clearStatus(text) {
+        if ($("status").textContent === text) setStatus("");
       }
       function warnAloud(text) {
         setStatus(text, true);
@@ -467,21 +472,23 @@
       }
 
       // ---------- Microfone ----------
-      // 🎙 liga a "conversa por voz": ouve uma frase, responde, volta a ouvir sozinho, até você
-      // clicar de novo, dizer "tchau" ou ficar ~1 minuto em silêncio. Enquanto Alfred fala, o
-      // microfone fica fechado para ele não ouvir a própria voz. "Chamar por Alfred" espera o nome.
+      // O microfone fica sempre esperando “Alfred”. Chamado, ele ouve uma frase, responde e volta a
+      // ouvir sozinho, até você dizer "tchau" ou ficar ~1 minuto em silêncio. Enquanto Alfred fala,
+      // o microfone fica fechado para ele não ouvir a própria voz.
       const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const MIC_ERRORS = {
         "not-allowed":
-          "O navegador bloqueou o microfone. Clique no cadeado ao lado do endereço → Microfone → Permitir, e clique no 🎙 de novo.",
+          "O navegador bloqueou o microfone. Libere o microfone para o Alfred nas configurações do Edge, em Permissões do site, e abra o Alfred de novo.",
         "service-not-allowed":
           "Este navegador não liberou o reconhecimento de voz. Abra o Alfred no Edge ou no Chrome.",
         "audio-capture":
-          "Nenhum microfone encontrado. Confira se ele está conectado e liberado em Configurações do Windows → Privacidade → Microfone.",
+          "Nenhum microfone encontrado. Confira se ele está conectado e liberado em Configurações do Windows → Privacidade → Microfone; tento de novo em 30 segundos.",
         network:
-          "O reconhecimento de voz do navegador não conseguiu conectar. Use o Edge ou o Chrome (Brave e Opera não funcionam) e confira a internet.",
+          "O reconhecimento de voz não conseguiu conectar. Confira a internet; tento de novo em 30 segundos.",
         "language-not-supported": "Este navegador não reconhece português. Abra o Alfred no Edge ou no Chrome.",
       };
+      // Falhas passageiras (internet caiu, microfone desconectado por um momento): tenta de novo.
+      const TRANSIENT_MIC_ERRORS = new Set(["network", "audio-capture"]);
       const MAX_SILENT_ROUNDS = 8; // ~1 minuto: o navegador encerra cada escuta após ~5–8 s de silêncio
       let rec = null;
       let listening = null; // "command" | "wake" | null
@@ -519,6 +526,16 @@
         if (warn) setStatus(message, true);
         if (was && silent) phrase("pausa"); // “Estarei por aqui, senhor. É só chamar.”
         scheduleListening(); // volta a esperar “Alfred”, se essa opção estiver ligada
+      }
+
+      // Mostra o problema e volta a ouvir sozinho daqui a 30 s (o microfone é sempre ligado).
+      function retryListening(message) {
+        setStatus(message, true);
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          clearStatus(message);
+          scheduleListening();
+        }, 30_000);
       }
 
       function stopListening() {
@@ -591,6 +608,11 @@
           rec = null;
           listening = null;
           settle();
+          if (fatal && TRANSIENT_MIC_ERRORS.has(fatal)) {
+            voiceSession = false;
+            retryListening(MIC_ERRORS[fatal]);
+            return;
+          }
           if (fatal) {
             // Só nesta abertura: ao abrir o Alfred de novo, ele tenta o microfone outra vez.
             $("wake").checked = false;
@@ -622,12 +644,7 @@
             // O microfone fica sempre ligado: em vez de desistir, tenta de novo daqui a pouco.
             quickEnds = 0;
             voiceSession = false;
-            setStatus("O microfone parou de responder. Confira se ele está liberado; tento de novo em 30 segundos.", true);
-            clearTimeout(retryTimer);
-            retryTimer = setTimeout(() => {
-              setStatus("");
-              scheduleListening();
-            }, 30_000);
+            retryListening("O microfone parou de responder. Confira se ele está liberado; tento de novo em 30 segundos.");
             return;
           }
           scheduleListening();
@@ -665,8 +682,26 @@
       }
 
       // Clique no globo: libera o som, corta a música de abertura ou liga/desliga a conversa.
+      // Segurar o globo (~0,7 s) abre o menu: é o jeito no celular, que não tem a tecla M.
+      let pressTimer = null;
+      let longPressed = false;
+      $("orb").addEventListener("pointerdown", () => {
+        longPressed = false;
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => {
+          longPressed = true;
+          menu.open(true);
+        }, 700);
+      });
+      for (const ev of ["pointerup", "pointerleave", "pointercancel"]) {
+        $("orb").addEventListener(ev, () => clearTimeout(pressTimer));
+      }
+      $("orb").addEventListener("contextmenu", (e) => e.preventDefault());
       $("orb").addEventListener("click", () => {
+        if (longPressed) return; // foi o toque longo do menu
+        const wasLocked = soundLocked;
         unlockAudio();
+        if (wasLocked) return; // esse clique só ligou o som (e o “Alfred a postos”)
         if (intro) return stopIntro();
         if (voiceSession) endVoiceSession();
         else startVoiceSession();
@@ -689,22 +724,22 @@
       let clapStarting = false;
       const CLAP_ERRORS = {
         unsupported: "Este navegador não consegue ouvir palmas. Use o Edge ou o Chrome.",
-        denied: "O navegador bloqueou o microfone para as palmas. Clique no cadeado ao lado do endereço → Microfone → Permitir.",
+        denied: "O navegador bloqueou o microfone para as palmas. Libere o microfone para o Alfred nas configurações do Edge, em Permissões do site.",
         "no-mic": "Nenhum microfone encontrado para ouvir as palmas.",
       };
 
       async function onDoubleClap() {
         if (voiceSession || busy || speaker.speaking || intro) return;
+        stopListening(); // sai do “Chamar por Alfred” já: nada de responder por cima da música
         if ($("introOn").checked) {
           const music = await idb("get");
           if (music) await playIntro(music);
           else await playTheme();
+          if (voiceSession || busy || speaker.speaking) return; // algo começou durante a música
         }
-        stopListening(); // sai do “Chamar por Alfred”, se estiver esperando
         voiceSession = true;
         silentRounds = 0;
         quickEnds = 0;
-        cueNext = false;
         cueNext = true;
         // “Bom dia / Boa tarde / Boa noite, senhor. Em que posso ser útil?” — ao terminar, ele ouve
         if (!phrase(greetingFor())) listen("command");
@@ -741,11 +776,12 @@
         settle();
       }
 
-      $("clap").checked = store.get("toggle:clap", true);
+      // "toggle:claps": as palmas agora vêm ligadas; a chave antiga podia guardar um "desligado" antigo.
+      $("clap").checked = store.get("toggle:claps", true);
       $("clapSensitivity").value = store.get("clapSensitivity", "media");
       $("clapSensitivityField").hidden = !$("clap").checked;
       $("clap").addEventListener("change", (e) => {
-        store.set("toggle:clap", e.target.checked);
+        store.set("toggle:claps", e.target.checked);
         $("clapSensitivityField").hidden = !e.target.checked;
         if (e.target.checked) {
           unlockAudio();
@@ -882,7 +918,9 @@
         // Espaço (fora do campo de texto): segure para falar uma frase só.
         if (e.code === "Space" && document.activeElement === document.body && !e.repeat) {
           e.preventDefault();
+          const wasLocked = soundLocked;
           unlockAudio();
+          if (wasLocked) return; // essa tecla só ligou o som (e o “Alfred a postos”)
           speaker.cancel();
           if (listening !== "command") {
             earcons.listen();

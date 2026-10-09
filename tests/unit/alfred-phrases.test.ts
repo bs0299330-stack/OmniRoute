@@ -91,15 +91,24 @@ function fakeBrowser() {
     constructor(src: string) {
       this.src = src;
     }
+    onplaying: (() => void) | null = null;
     play() {
       events.push("play:" + this.src);
       if (this.src.includes("missing")) setTimeout(() => this.onerror?.(), 5);
-      else setTimeout(() => this.onended?.(), 40);
+      else if (this.src.includes("stuck")) return new Promise(() => {}); // load deferred: no event at all
+      else {
+        setTimeout(() => this.onplaying?.(), 1);
+        setTimeout(() => this.onended?.(), 40);
+      }
       return Promise.resolve();
     }
     pause() {
       events.push("pause:" + this.src);
       this.onpause?.();
+    }
+    removeAttribute() {}
+    load() {
+      events.push("unload:" + this.src);
     }
   }
   const g = globalThis as Record<string, unknown>;
@@ -152,6 +161,25 @@ test("a recording that cannot play is spoken by the normal voice instead", async
     speaker.playClip("frases/missing.mp3", "Pois não, senhor?");
     await idle(speaker);
     assert.deepEqual(events, ["play:frases/missing.mp3", "speak:Pois não, senhor?"]);
+  } finally {
+    restore();
+  }
+});
+
+test("a recording that never starts (hidden window) is unloaded and replaced by the normal voice", async () => {
+  const { events, restore } = fakeBrowser();
+  try {
+    const speaker = createSpeaker({ getSettings: () => ({ engine: "browser" }) });
+    speaker.playClip("frases/stuck.mp3", "Um momento, senhor.");
+    speaker.say("A resposta.");
+    await idle(speaker);
+    assert.deepEqual(events, [
+      "play:frases/stuck.mp3",
+      "pause:frases/stuck.mp3",
+      "unload:frases/stuck.mp3", // can never start later, out of turn
+      "speak:Um momento, senhor.",
+      "speak:A resposta.",
+    ]);
   } finally {
     restore();
   }

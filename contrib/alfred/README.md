@@ -228,18 +228,18 @@ reconhecimento de voz).
 | Encerrar             | Diga "tchau", "pode parar" ou "obrigado, Alfred"                                        |
 | Interromper a fala   | **Esc**                                                                                 |
 | Sem falar o nome     | Clique no globo (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
-| Opções e histórico   | Tecla **M** abre e fecha o menu (voz, palmas, música, histórico com os links das fontes) |
+| Opções e histórico   | Tecla **M** ou **segurar o globo** abre o menu (voz, palmas, música, histórico com os links das fontes) |
 
 - **O microfone fica sempre ligado**, esperando o nome "Alfred" ou duas palmas. Ele não responde à
   TV nem a quem conversa perto do PC, só a quem chama pelo nome. Depois de chamado, ele responde,
-  ouve de novo e continua até você dizer "tchau" ou ficar uns segundos em silêncio. Aí ele diz
-  "Estarei por aqui, senhor" e volta a esperar o nome.
+  ouve de novo e continua até você dizer "tchau" ou ficar cerca de 1 minuto em silêncio. Aí ele
+  diz "Estarei por aqui, senhor" e volta a esperar o nome.
 - Enquanto o Alfred fala, o microfone fica fechado para ele não ouvir a própria voz. Um bipe avisa
   quando é a sua vez.
 - **O globo mostra o estado:** cinza esperando, amarelo ouvindo ou falando, pulsando ao pensar.
 - **Avisos só quando algo dá errado:** se o microfone for bloqueado ou o servidor cair, uma linha
-  discreta aparece embaixo e o Alfred fala o problema. Se o microfone parar de responder, ele tenta
-  de novo sozinho a cada 30 segundos.
+  discreta aparece embaixo e o Alfred fala o problema. Se a internet cair ou o microfone parar de
+  responder, ele tenta de novo sozinho a cada 30 segundos.
 - **Janela própria:** o `iniciar-alfred.cmd` abre o Alfred no Edge em uma janela só dele, sem abas
   nem barra de endereço, e já com o som liberado (perfil separado em
   `%LOCALAPPDATA%\Alfred\Edge`). Na primeira vez, o Edge pede o microfone: clique em **Permitir**.
@@ -315,8 +315,12 @@ de vozes do [ElevenLabs](https://elevenlabs.io), sem chave nenhuma no PC: os áu
 Para gravar as outras: gere a frase no ElevenLabs, salve o MP3 em `public/frases/` com um nome
 simples (letras minúsculas, números e hífen) e coloque esse caminho no `file` da frase em `PHRASES`
 (`public/voice.mjs`). Em **Frases gravadas** (menu, tecla M) você desliga as gravações e volta tudo
-para a voz normal. Os áudios foram gerados no plano grátis do ElevenLabs: uso pessoal, não
-comercial, com o crédito ao ElevenLabs acima.
+para a voz normal.
+
+**Licença dos áudios:** os arquivos de `public/frases/` **não** estão cobertos pela licença MIT do
+repositório. Eles foram gerados no plano grátis do ElevenLabs com uma voz da Voice Library e valem
+só para uso pessoal, não comercial, nos termos do ElevenLabs (com o crédito acima). Para qualquer
+outro uso, gere os seus próprios áudios.
 
 ## Falar com o Alfred pelo celular (com microfone)
 
@@ -332,7 +336,8 @@ O navegador do celular só libera o microfone em **https**. O Alfred cria esse l
 
 3. Ele mostra um link `https://….trycloudflare.com/#token=…`. Abra esse link no celular (Chrome
    no Android). A senha vai junto no link, a página guarda e tira da barra de endereço. Toque no
-   globo (libera o som e o microfone) e fale, ou diga "Alfred, …".
+   globo (libera o som e o microfone) e fale, ou diga "Alfred, …". Para abrir o menu no celular,
+   segure o dedo no globo.
 
 Enquanto o link estiver ativo, as rotas `/api/*` exigem a senha. Se `ALFRED_TOKEN` não estiver
 definido, ele gera uma senha nova a cada execução. **Não compartilhe o link**, porque quem tiver o
