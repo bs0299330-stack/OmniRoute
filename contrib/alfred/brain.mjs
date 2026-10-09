@@ -9,7 +9,7 @@ import {
   buildClaudePrompt,
   claudeCandidates,
   createSseParser,
-  parseClaudeLine,
+  createClaudeStreamParser,
 } from "./lib.mjs";
 
 export const BRAIN_LABELS = { omniroute: "OmniRoute", openai: "OpenAI", claude: "Claude" };
@@ -184,14 +184,19 @@ async function* streamClaude(config, messages, signal) {
 
   let buffer = "";
   let gotText = false;
+  const parse = createClaudeStreamParser();
   try {
     for await (const chunk of child.stdout) {
       buffer += chunk;
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        const event = parseClaudeLine(line);
+        const event = parse(line);
         if (!event) continue;
+        if (event.status) {
+          yield { status: event.status };
+          continue;
+        }
         if (event.error) {
           log("[alfred] claude error:", event.detail || event.error);
           throw new BrainError(claudeFailure(`${event.detail ?? ""} ${stderr}`), event.detail || stderr);
@@ -216,29 +221,37 @@ async function* streamClaude(config, messages, signal) {
 }
 
 /**
- * Streams Alfred's reply as text deltas. Throws BrainError with a user-safe message, including
- * when no text arrives within `firstTokenMs` (so a stuck brain never leaves the user waiting).
+ * Streams Alfred's reply: text deltas (strings) and, while Claude searches or reads the web,
+ * `{ status: { tool, detail } }` objects. Throws BrainError with a user-safe message, including
+ * when nothing at all happens for `idleMs` (so a stuck brain never leaves the user waiting; a long
+ * web search that keeps reporting progress is not cut off).
  */
-export async function* streamReply(config, brain, messages, { signal, firstTokenMs = FIRST_TOKEN_TIMEOUT_MS } = {}) {
+export async function* streamReply(config, brain, messages, { signal, idleMs = FIRST_TOKEN_TIMEOUT_MS, firstTokenMs } = {}) {
+  idleMs = firstTokenMs ?? idleMs;
   const ctl = new AbortController();
   const forward = () => ctl.abort();
   if (signal?.aborted) return;
   signal?.addEventListener("abort", forward, { once: true });
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    ctl.abort();
-  }, firstTokenMs);
+  let timer;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timedOut = true;
+      ctl.abort();
+    }, idleMs);
+  };
   const timeoutError = () =>
     new BrainError(
-      `${BRAIN_LABELS[brain]} não respondeu em ${Math.round(firstTokenMs / 1000)} s. Rode o diagnóstico para ver o motivo.`
+      `${BRAIN_LABELS[brain]} ficou ${Math.round(idleMs / 1000)} s sem responder. Rode o diagnóstico para ver o motivo.`
     );
+  arm();
   try {
     const inner =
       brain === "claude" ? streamClaude(config, messages, ctl.signal) : streamChatCompletions(config, brain, messages, ctl.signal);
-    for await (const text of inner) {
-      clearTimeout(timer);
-      yield text;
+    for await (const piece of inner) {
+      arm();
+      yield piece;
     }
     if (timedOut) throw timeoutError();
   } catch (err) {
@@ -303,7 +316,7 @@ export async function checkBrains(config, { deep = true } = {}) {
       for await (const delta of streamReply(config, "claude", [{ role: "user", content: "Responda apenas: ok" }], {
         firstTokenMs: 60_000,
       })) {
-        text += delta;
+        if (typeof delta === "string") text += delta;
       }
       result.claude = { ok: true, detail: `${claude.version} — respondeu "${text.trim().slice(0, 40)}"` };
     } catch (err) {

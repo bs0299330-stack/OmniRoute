@@ -22,6 +22,7 @@ import {
   extractTunnelUrl,
   isAuthorized,
   loadConfig,
+  statusLabel,
   ttsVoices,
   validateChatBody,
   validateTtsBody,
@@ -169,7 +170,7 @@ async function handleChat(req, res) {
     return sendJson(res, 502, { error: message });
   }
 
-  // Re-emit only the text deltas as a minimal SSE stream for the browser.
+  // Re-emit text deltas (and "Pesquisando…" statuses) as a minimal SSE stream for the browser.
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache",
@@ -177,7 +178,9 @@ async function handleChat(req, res) {
   });
   try {
     for (let step = first; !step.done; step = await stream.next()) {
-      res.write(`data: ${JSON.stringify({ text: step.value })}\n\n`);
+      const piece = step.value;
+      const event = typeof piece === "string" ? { text: piece } : { status: statusLabel(piece.status) };
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
     res.write("data: [DONE]\n\n");
   } catch (err) {

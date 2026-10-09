@@ -23,6 +23,7 @@ import {
   buildTtsRequest,
   loadConfig,
   soxRecordArgs,
+  statusLabel,
 } from "./lib.mjs";
 import { CHUNKING, createChunker, isStopPhrase } from "./public/voice.mjs";
 
@@ -264,6 +265,10 @@ async function ask(text) {
   let full = "";
   try {
     for await (const delta of streamReply(config, brain, messages, { signal: controller.signal })) {
+      if (typeof delta !== "string") {
+        thinking.label(statusLabel(delta.status)); // 🔎 pesquisando na internet…
+        continue;
+      }
       thinking.stop();
       full += delta;
       process.stdout.write(delta);
@@ -291,20 +296,24 @@ async function ask(text) {
 
 /** "pensando… 3s" while waiting for the first words, so a slow brain never looks frozen. */
 function startThinking() {
-  if (!process.stdout.isTTY) return { stop() {} };
+  if (!process.stdout.isTTY) return { stop() {}, label() {} };
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   const started = Date.now();
   let i = 0;
   let shown = "";
+  let what = "pensando…";
   const draw = () => {
     const secs = Math.floor((Date.now() - started) / 1000);
-    const text = `${frames[i++ % frames.length]} pensando… ${secs}s`;
+    const text = `${frames[i++ % frames.length]} ${what} ${secs}s`.slice(0, 70);
     process.stdout.write("\b".repeat(shown.length) + dim(text));
     shown = text;
   };
   draw();
   const timer = setInterval(draw, 120);
   return {
+    label(text) {
+      what = `🔎 ${text}`;
+    },
     stop() {
       clearInterval(timer);
       if (shown) {

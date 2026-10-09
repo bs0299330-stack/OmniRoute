@@ -269,11 +269,30 @@
         who.textContent = (kind === "user" ? "VOCÊ" : kind === "alfred" ? "ALFRED" : "SISTEMA") + " · " + time;
         const what = document.createElement("div");
         what.className = "what";
-        what.textContent = text;
+        setRichText(what, text);
         entry.append(who, what);
         log.appendChild(entry);
         log.scrollTop = log.scrollHeight;
         return what;
+      }
+
+      // Fontes clicáveis: [título](https://…) e endereços soltos viram links; todo o resto é texto.
+      // Os elementos são criados um a um (nunca innerHTML), e só links http/https são aceitos.
+      const LINKS = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]{1,500})\)|(https?:\/\/[^\s)<>\]]{1,500})/g;
+      function setRichText(el, text) {
+        el.textContent = "";
+        let last = 0;
+        for (const m of String(text).matchAll(LINKS)) {
+          el.append(text.slice(last, m.index));
+          const a = document.createElement("a");
+          a.href = m[2] || m[3];
+          a.textContent = m[1] || m[3];
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          el.append(a);
+          last = m.index + m[0].length;
+        }
+        el.append(text.slice(last));
       }
 
       function render() {
@@ -392,6 +411,11 @@
               if (!data || data === "[DONE]") continue;
               const msg = JSON.parse(data);
               if (msg.error) throw new Error(msg.error);
+              if (msg.status) {
+                setPhase("thinking", msg.status); // “Pesquisando: …”, “Lendo g1.globo.com”
+                if (!full) $("caption").textContent = "…";
+                continue;
+              }
               full += msg.text;
               entry.textContent = full;
               $("caption").textContent = full;
@@ -400,6 +424,7 @@
             }
           }
           say(chunker.flush());
+          setRichText(entry, full);
           history.push({ role: "assistant", content: full || "(sem resposta)" });
           store.set("history", history.slice(-40));
         } catch (err) {

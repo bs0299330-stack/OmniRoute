@@ -115,6 +115,26 @@ e dois Ctrl+C saem.
   (`gpt-4o-mini-transcribe`), ou de `ALFRED_STT_MODEL` com um modelo de transcrição do OmniRoute. Ele
   para de gravar sozinho depois de ~1,6 s de silêncio.
 
+## Internet
+
+O Alfred pesquisa e lê páginas na internet quando a pergunta envolve algo atual (notícias, preços,
+clima, resultados, horários). Enquanto pesquisa, a tela mostra "Pesquisando: …" ou "Lendo
+site.com", e o terminal mostra "🔎 …". Ele cita a fonte numa frase ("segundo o InfoMoney…"). A
+lista de links aparece no histórico, clicável, mas não é lida em voz alta.
+
+| Cérebro   | Como pesquisa                                                                                   |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| Claude    | Ferramentas **WebSearch** e **WebFetch** do Claude Code, as únicas liberadas (só leitura)        |
+| OpenAI    | Modelo de pesquisa `gpt-5-search-api` (`ALFRED_OPENAI_SEARCH_MODEL`), que pesquisa a cada pergunta |
+| OmniRoute | Escolha um modelo que pesquisa sozinho, por exemplo `ALFRED_MODEL=perplexity/sonar`             |
+
+`ALFRED_WEB=full` (padrão) pesquisa e lê páginas; `search` só pesquisa; `off` desliga a internet.
+**Cuidados:** cada pesquisa gasta um pouco mais do seu plano ou crédito, e respostas com pesquisa
+levam de 10 a 30 segundos. Páginas da web podem trazer texto tentando dar ordens ao Alfred. Ele foi
+instruído a tratar isso só como informação, e com o Claude ele não tem nenhuma ferramenta além de
+ler a web (não mexe em arquivos nem roda comandos). Mesmo assim, não peça para ele abrir links em
+que você não confia.
+
 ## Abre, mas não responde?
 
 O Alfred precisa de **um cérebro**. Ao abrir, ele avisa quando nenhum está funcionando, e o
@@ -127,8 +147,8 @@ de verdade. Escolha um:
 2. **OpenAI**: coloque `OPENAI_API_KEY=` no `alfred.env`.
 3. **OmniRoute**: deixe o OmniRoute ligado.
 
-Enquanto espera a resposta, o terminal mostra "pensando… Ns". Se nada chegar em 90 segundos, ele
-desiste e diz o motivo, em vez de ficar travado.
+Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquisando: …"). Se ficar
+90 segundos sem nenhum sinal, ele desiste e diz o motivo, em vez de ficar travado.
 
 ## Não abre?
 
@@ -247,7 +267,9 @@ ele envia sozinho.
 | ---------------------- | ---------------------------- | ----------------------------------------------- |
 | `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `openai` ou `claude` (Claude Code)  |
 | `ALFRED_CLAUDE_MODEL`  | —                            | Modelo do Claude Code (`sonnet`, `opus`…)        |
-| `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI              |
+| `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI (sem internet) |
+| `ALFRED_WEB`           | `full`                       | Internet: `full`, `search` ou `off`             |
+| `ALFRED_OPENAI_SEARCH_MODEL` | `gpt-5-search-api`     | Modelo da OpenAI com pesquisa na web            |
 | `ALFRED_STT_MODEL`     | `gpt-4o-mini-transcribe`     | Transcrição do microfone no terminal            |
 | `OMNIROUTE_URL`        | `http://localhost:20128/v1`  | Endpoint OpenAI-compatível do OmniRoute         |
 | `OMNIROUTE_API_KEY`    | —                            | Chave de API do OmniRoute                        |

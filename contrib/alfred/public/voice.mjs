@@ -30,6 +30,8 @@ export const VOICE_TEST_LINE = "Pois não, senhor. Alfred às suas ordens. Em qu
 const ABBREVIATION_END = /(?:^|[\s(])(?:sr|sra|srta|dr|dra|prof|profa|av|etc|ex|obs|pág|pag|vs|aprox|tel|n[º°o])\.$/i;
 const SENTENCE_END = /[.!?…]+["'”’)\]]*(?=\s)|\n+/g;
 const SOFT_BREAK = /[,;:](?=\s)/g;
+// The list of links a web answer ends with ("Sources:" / "Fontes:") is shown, not read aloud.
+const SOURCES_HEADING = /(?:^|\n)[ \t]*(?:\*\*|#+[ \t]*)?(?:sources|fontes|referências|referencias)(?:\*\*)?[ \t]*:/i;
 
 /** Strips what should not be read aloud: markdown, links, emoji, code. */
 export function cleanForSpeech(text) {
@@ -56,6 +58,7 @@ export function cleanForSpeech(text) {
 export function createChunker({ firstAtComma = true, firstMin = 28, minLater = 0, max = 170 } = {}) {
   let buf = "";
   let emitted = 0;
+  let closed = false; // reached the sources list: nothing more to say
 
   function take(n) {
     const piece = buf.slice(0, n);
@@ -101,7 +104,13 @@ export function createChunker({ firstAtComma = true, firstMin = 28, minLater = 0
   return {
     /** Feed streamed text; returns the chunks that are ready to speak. */
     push(delta) {
+      if (closed) return [];
       buf += delta;
+      const sources = buf.match(SOURCES_HEADING);
+      if (sources) {
+        buf = buf.slice(0, sources.index);
+        closed = true;
+      }
       const out = [];
       let piece;
       while ((piece = next()) !== null) collect(piece, out);
@@ -117,6 +126,7 @@ export function createChunker({ firstAtComma = true, firstMin = 28, minLater = 0
     reset() {
       buf = "";
       emitted = 0;
+      closed = false;
     },
   };
 }

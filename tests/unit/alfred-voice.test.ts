@@ -113,3 +113,12 @@ test("isStopPhrase ends a voice conversation only on a whole goodbye phrase", as
     assert.equal(isStopPhrase(no), false, no);
   }
 });
+
+test("the spoken answer stops before the list of sources (still shown on screen)", () => {
+  const answer =
+    "Segundo o site oficial, a versão atual é a 26. A LTS é a 24.\n\nSources:\n- [Node.js – Download](https://nodejs.org/en/download)";
+  const out = stream(createChunker(CHUNKING.neural), answer, 5);
+  assert.equal(out.join(" "), "Segundo o site oficial, a versão atual é a 26. A LTS é a 24.");
+  const pt = stream(createChunker(CHUNKING.browser), "Está ensolarado.\n**Fontes:**\n- clima.com", 4);
+  assert.deepEqual(pt, ["Está ensolarado."]);
+});

@@ -32,21 +32,30 @@ test("brain defaults to auto and validates ALFRED_BRAIN", () => {
 
 test("OpenAI brain targets the OpenAI API with its own model and key", () => {
   const config = loadConfig({ OPENAI_API_KEY: "sk-test", ALFRED_OPENAI_MODEL: "gpt-4.1-mini" });
-  const call = buildChatCall(config, "openai", history);
+  const call = buildChatCall(loadConfig({ OPENAI_API_KEY: "sk-test", ALFRED_OPENAI_MODEL: "gpt-4.1-mini", ALFRED_WEB: "off" }), "openai", history);
   assert.equal(call.url, OPENAI_CHAT_URL);
   assert.equal(call.apiKey, "sk-test");
   assert.equal(call.body.model, "gpt-4.1-mini");
+  assert.equal(call.body.web_search_options, undefined);
+  const web = buildChatCall(config, "openai", history);
+  assert.equal(web.body.model, "gpt-5-search-api");
+  assert.equal(web.body.web_search_options.user_location.approximate.country, "BR");
+  assert.equal(web.body.temperature, undefined, "search models reject temperature");
+  assert.match(web.body.messages[0].content, /acesso à internet/);
   assert.equal(call.body.stream, true);
   const omni = buildChatCall(loadConfig({ OMNIROUTE_API_KEY: "omni" }), "omniroute", history);
   assert.equal(omni.url, "http://localhost:20128/v1/chat/completions");
   assert.equal(omni.apiKey, "omni");
+  assert.doesNotMatch(omni.body.messages[0].content, /acesso à internet/, "plain models do not claim web access");
+  const sonar = buildChatCall(loadConfig({ ALFRED_MODEL: "perplexity/sonar" }), "omniroute", history);
+  assert.match(sonar.body.messages[0].content, /acesso à internet/);
 });
 
-test("Claude Code command: no tools, streaming, persona in args only off Windows", () => {
+test("Claude Code command: only the web tools, pre-approved; persona in args only off Windows", () => {
   const config = loadConfig({});
   const posix = buildClaudeCommand(config, "linux");
   assert.equal(posix.shell, false);
-  assert.deepEqual(posix.args.slice(0, 8), [
+  assert.deepEqual(posix.args.slice(0, 10), [
     "-p",
     "--output-format",
     "stream-json",
@@ -54,15 +63,25 @@ test("Claude Code command: no tools, streaming, persona in args only off Windows
     "--include-partial-messages",
     "--no-session-persistence",
     "--tools",
-    "",
+    "WebSearch,WebFetch",
+    "--allowedTools",
+    "WebSearch,WebFetch",
   ]);
-  assert.ok(posix.args.includes("--system-prompt"));
+  const persona = posix.args[posix.args.indexOf("--system-prompt") + 1];
+  assert.match(persona, /acesso à internet/);
+  const searchOnly = buildClaudeCommand(loadConfig({ ALFRED_WEB: "search" }), "linux");
+  assert.equal(searchOnly.args[searchOnly.args.indexOf("--tools") + 1], "WebSearch");
+  const off = buildClaudeCommand(loadConfig({ ALFRED_WEB: "off" }), "linux");
+  assert.equal(off.args[off.args.indexOf("--tools") + 1], "");
+  assert.ok(!off.args.includes("--allowedTools"));
+  assert.doesNotMatch(off.args[off.args.indexOf("--system-prompt") + 1], /acesso à internet/);
 
   const win = buildClaudeCommand(config, "win32");
   assert.equal(win.shell, true);
   assert.equal(win.personaInArgs, false);
   assert.ok(!win.args.includes("--system-prompt"), "nothing free-form reaches cmd.exe");
-  for (const arg of win.args) assert.match(arg, /^[\w\-:".]*$/);
+  for (const arg of win.args) assert.match(arg, /^("[\w,]*"|[\w\-:.]*)$/, arg);
+  assert.equal(win.args[win.args.indexOf("--tools") + 1], '"WebSearch,WebFetch"');
 });
 
 test("Claude prompt carries the history and the new message (user text only via stdin)", () => {
@@ -172,7 +191,9 @@ test("Claude Code lookup: PATH first, then the native installer's claude.exe (ru
   const exe = buildClaudeCommand(config, "win32", "C:\\Users\\Ana\\.local\\bin\\claude.exe");
   assert.equal(exe.shell, false);
   assert.equal(exe.personaInArgs, true);
-  assert.ok(exe.args.includes(""), "empty --tools value passed directly");
+  assert.equal(exe.args[exe.args.indexOf("--tools") + 1], "WebSearch,WebFetch");
+  const exeOff = buildClaudeCommand(loadConfig({ ALFRED_WEB: "off" }), "win32", "C:\\x\\claude.exe");
+  assert.equal(exeOff.args[exeOff.args.indexOf("--tools") + 1], "", "empty --tools value passed directly");
 });
 
 test("parseClaudeLine keeps the error detail (e.g. not logged in)", () => {
@@ -192,15 +213,38 @@ test("streamReply gives up with a clear message when the brain never answers", a
   process.env.ALFRED_QUIET = "1";
   const config = loadConfig({ OMNIROUTE_URL: `http://127.0.0.1:${port}/v1` });
   const started = Date.now();
-  await assert.rejects(
-    async () => {
-      for await (const _ of streamReply(config, "omniroute", [{ role: "user", content: "oi" }], { firstTokenMs: 300 })) {
-        // no text expected
-      }
-    },
-    (err: unknown) => err instanceof BrainError && /não respondeu em 0 s|não respondeu em/.test((err as Error).message)
-  );
-  assert.ok(Date.now() - started < 5000);
-  hanging.closeAllConnections();
-  hanging.close();
+  try {
+    await assert.rejects(
+      async () => {
+        for await (const _ of streamReply(config, "omniroute", [{ role: "user", content: "oi" }], { idleMs: 300 })) {
+          // no text expected
+        }
+      },
+      (err: unknown) => err instanceof BrainError && /sem responder/.test((err as Error).message)
+    );
+    assert.ok(Date.now() - started < 5000);
+  } finally {
+    hanging.closeAllConnections();
+    hanging.close();
+  }
+});
+
+test("Claude stream parser reports web searches and page reads", async () => {
+  const { createClaudeStreamParser, statusLabel } = await import("../../contrib/alfred/lib.mjs");
+  const feed = createClaudeStreamParser();
+  const ev = (event: object) => JSON.stringify({ type: "stream_event", event });
+  assert.equal(feed(ev({ type: "content_block_start", index: 0, content_block: { type: "tool_use", name: "WebSearch", input: {} } })), null);
+  assert.equal(feed(ev({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"query": "cotação ' } })), null);
+  feed(ev({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: 'do dólar hoje"}' } }));
+  const search = feed(ev({ type: "content_block_stop", index: 0 }));
+  assert.deepEqual(search, { status: { tool: "search", detail: "cotação do dólar hoje" } });
+  assert.equal(statusLabel(search.status), "Pesquisando: cotação do dólar hoje");
+  feed(ev({ type: "content_block_start", index: 1, content_block: { type: "tool_use", name: "WebFetch", input: {} } }));
+  feed(ev({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"url":"https://www.g1.globo.com/economia","prompt":"x"}' } }));
+  const read = feed(ev({ type: "content_block_stop", index: 1 }));
+  assert.equal(statusLabel(read.status), "Lendo g1.globo.com");
+  assert.deepEqual(feed(ev({ type: "content_block_delta", index: 2, delta: { type: "text_delta", text: "Segundo o G1" } })), {
+    text: "Segundo o G1",
+  });
+  assert.equal(feed(ev({ type: "content_block_stop", index: 2 })), null, "a text block stop is not a status");
 });
