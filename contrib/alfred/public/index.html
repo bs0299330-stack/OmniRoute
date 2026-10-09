@@ -893,7 +893,7 @@
           $("chipBrain").textContent = h.brain || "nenhum";
           if (h.brainFound === false) {
             $("caption").textContent = "Estou sem cérebro para responder, senhor.";
-            setStatus("Sem cérebro: coloque uma chave grátis do Gemini (aistudio.google.com/apikey) em GEMINI_API_KEY no alfred.env, ou instale o Claude Code, ou coloque OPENAI_API_KEY. Rode windows\\diagnostico.cmd para testar.", true);
+            setStatus("Sem cérebro: rode o instalador de novo e escolha a opção 1 (IA no seu PC, grátis e sem chave), ou coloque uma chave grátis do Gemini (aistudio.google.com/apikey) em GEMINI_API_KEY no alfred.env, ou instale o Claude Code, ou coloque OPENAI_API_KEY. Rode windows\\diagnostico.cmd para testar.", true);
           }
           tts = h.tts || null;
           ttsAvailable = !!tts;

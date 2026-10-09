@@ -1,4 +1,5 @@
-// Alfred — the "brain": streams a reply from OmniRoute, Gemini, OpenAI or Claude Code.
+// Alfred — the "brain": streams a reply from OmniRoute, a local AI (Ollama), Gemini, OpenAI or
+// Claude Code.
 // Shared by server.mjs (the web page) and cli.mjs (the terminal).
 
 import { spawn } from "node:child_process";
@@ -12,7 +13,13 @@ import {
   createClaudeStreamParser,
 } from "./lib.mjs";
 
-export const BRAIN_LABELS = { omniroute: "OmniRoute", gemini: "Gemini", openai: "OpenAI", claude: "Claude" };
+export const BRAIN_LABELS = {
+  omniroute: "OmniRoute",
+  local: "IA do PC",
+  gemini: "Gemini",
+  openai: "OpenAI",
+  claude: "Claude",
+};
 export const FIRST_TOKEN_TIMEOUT_MS = 90_000;
 
 // Technical logs go to stderr for the server; the terminal Alfred sets ALFRED_QUIET=1.
@@ -30,10 +37,10 @@ export class BrainError extends Error {
 
 const LOGIN_HINT = "O Claude Code não está logado: abra o terminal, rode `claude` e faça o login (precisa de plano Pro ou Max).";
 
-async function omnirouteAnswers(config) {
+async function answers(baseUrl, apiKey = "") {
   try {
-    const res = await fetch(`${config.baseUrl}/models`, {
-      headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
+    const res = await fetch(`${baseUrl}/models`, {
+      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
       signal: AbortSignal.timeout(2500),
     });
     return res.ok;
@@ -41,6 +48,10 @@ async function omnirouteAnswers(config) {
     return false;
   }
 }
+
+const LOCAL_OFF = "Não consegui falar com a IA do PC (Ollama). Abra o Ollama pelo menu Iniciar e tente de novo.";
+const localMissing = (model) =>
+  `A IA do PC ainda não tem o modelo ${model}. No PowerShell, rode: ollama pull ${model}`;
 
 /** Runs `<bin> --version`; resolves the version line or null. */
 function claudeVersion(config, bin) {
@@ -86,13 +97,14 @@ export function findClaude(config) {
 }
 
 /**
- * Resolves "auto": OmniRoute if it answers, else Gemini or OpenAI with a key (Gemini first: its
- * free tier costs nothing), else Claude Code if installed. `found` is false when nothing is available (the brain then falls back to OmniRoute
+ * Resolves "auto": OmniRoute or the local AI if one answers, else Gemini or OpenAI with a key
+ * (Gemini first: its free tier costs nothing), else Claude Code if installed. `found` is false when nothing is available (the brain then falls back to OmniRoute
  * and every question fails with a hint).
  */
 export async function detectBrainInfo(config) {
   if (config.brain !== "auto") return { brain: config.brain, found: true };
-  if (await omnirouteAnswers(config)) return { brain: "omniroute", found: true };
+  if (await answers(config.baseUrl, config.apiKey)) return { brain: "omniroute", found: true };
+  if (await answers(config.localUrl)) return { brain: "local", found: true };
   if (config.geminiKey) return { brain: "gemini", found: true };
   if (config.openaiKey) return { brain: "openai", found: true };
   if (await findClaude(config)) return { brain: "claude", found: true };
@@ -128,7 +140,9 @@ async function* streamChatCompletions(config, brain, messages, signal) {
     throw new BrainError(
       brain === "omniroute"
         ? "Não consegui falar com o OmniRoute. Ele está rodando? Rode o diagnóstico para ver outras opções."
-        : `Não consegui falar com ${brain === "openai" ? "a OpenAI" : "o Gemini"}. Confira a internet.`
+        : brain === "local"
+          ? LOCAL_OFF
+          : `Não consegui falar com ${brain === "openai" ? "a OpenAI" : "o Gemini"}. Confira a internet.`
     );
   }
   if (!res.ok || !res.body) {
@@ -137,6 +151,7 @@ async function* streamChatCompletions(config, brain, messages, signal) {
     if (res.status === 401 || res.status === 403 || (brain === "gemini" && res.status === 400 && /api.?key/i.test(body))) {
       throw new BrainError(KEY_REFUSED[brain]);
     }
+    if (brain === "local" && res.status === 404) throw new BrainError(localMissing(config.localModel));
     if (res.status === 429) {
       throw new BrainError(
         brain === "gemini"
@@ -295,6 +310,23 @@ export async function checkBrains(config, { deep = true } = {}) {
         };
   } catch {
     result.omniroute = { ok: false, detail: `não está rodando em ${config.baseUrl}`, fix: "Opcional: ligue o OmniRoute se quiser usá-lo." };
+  }
+
+  try {
+    const res = await fetch(`${config.localUrl}/models`, { signal: AbortSignal.timeout(4000) });
+    const ids = res.ok ? ((await res.json())?.data ?? []).map((m) => m.id) : [];
+    const has = ids.some((id) => id === config.localModel || id === `${config.localModel}:latest`);
+    result.local = !res.ok
+      ? { ok: false, detail: `respondeu HTTP ${res.status}` }
+      : has
+        ? { ok: true, detail: `Ollama com o modelo ${config.localModel}` }
+        : { ok: false, detail: `Ollama ligado, mas sem o modelo ${config.localModel}`, fix: `No PowerShell: ollama pull ${config.localModel}` };
+  } catch {
+    result.local = {
+      ok: false,
+      detail: "Ollama não está rodando",
+      fix: "Grátis e sem chave: rode o instalador de novo e escolha a opção 1 (IA no seu PC).",
+    };
   }
 
   if (!config.geminiKey) {

@@ -267,7 +267,8 @@ test("Gemini brain: free key, OpenAI-compatible endpoint, no web, quick thinking
 
 test("auto brain prefers the free Gemini over OpenAI and Claude when OmniRoute is off", async () => {
   const { detectBrainInfo } = await import("../../contrib/alfred/brain.mjs");
-  const off = { OMNIROUTE_URL: "http://127.0.0.1:9/v1" }; // nothing listens on the discard port
+  // nothing listens on the discard port, so neither OmniRoute nor a local Ollama answers
+  const off = { OMNIROUTE_URL: "http://127.0.0.1:9/v1", ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1" };
   assert.deepEqual(await detectBrainInfo(loadConfig({ ...off, GEMINI_API_KEY: "g", OPENAI_API_KEY: "sk" })), {
     brain: "gemini",
     found: true,
@@ -318,4 +319,61 @@ test("Gemini brain streams text and explains the free-tier limit and a bad key",
     server.closeAllConnections();
     server.close();
   }
+});
+
+test("local brain: Ollama on this PC, no key, Gemma 3 by default", async () => {
+  assert.equal(loadConfig({ ALFRED_BRAIN: "local" }).brain, "local");
+  const call = buildChatCall(loadConfig({}), "local", history);
+  assert.equal(call.url, "http://localhost:11434/v1/chat/completions");
+  assert.equal(call.apiKey, "", "no key is ever sent");
+  assert.equal(call.body.model, "gemma3:4b");
+  assert.equal(call.body.stream, true);
+  assert.match(call.body.messages[0].content, /não tem acesso à internet/);
+  const custom = loadConfig({ ALFRED_LOCAL_MODEL: "gemma3:1b", ALFRED_LOCAL_URL: "http://127.0.0.1:9999/v1/" });
+  assert.equal(buildChatCall(custom, "local", history).url, "http://127.0.0.1:9999/v1/chat/completions");
+  assert.equal(buildChatCall(custom, "local", history).body.model, "gemma3:1b");
+});
+
+test("local brain: auto picks a running Ollama; clear messages when it is off or lacks the model", async () => {
+  const { createServer } = await import("node:http");
+  const { detectBrainInfo, streamReply, checkBrains, BrainError } = await import("../../contrib/alfred/brain.mjs");
+  let hasModel = true;
+  const ollama = createServer((req, res) => {
+    if (req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ data: hasModel ? [{ id: "gemma3:4b" }] : [] }));
+    }
+    if (!hasModel) {
+      res.writeHead(404, { "content-type": "application/json" });
+      return res.end('{"error":{"message":"model \\"gemma3:4b\\" not found, try pulling it first"}}');
+    }
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end('data: {"choices":[{"delta":{"content":"Às ordens."}}]}\n\ndata: [DONE]\n\n');
+  });
+  await new Promise<void>((resolve) => ollama.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = ollama.address() as { port: number };
+  process.env.ALFRED_QUIET = "1";
+  const env = { OMNIROUTE_URL: "http://127.0.0.1:9/v1", ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1` };
+  const config = loadConfig({ ...env, GEMINI_API_KEY: "g" });
+  const collect = async (c = config) => {
+    let text = "";
+    for await (const piece of streamReply(c, "local", [{ role: "user", content: "oi" }])) text += piece;
+    return text;
+  };
+  try {
+    assert.equal((await detectBrainInfo(config)).brain, "local", "free local AI before any keyed brain");
+    assert.equal(await collect(), "Às ordens.");
+    assert.equal((await checkBrains(config, { deep: false })).local.ok, true);
+    hasModel = false;
+    await assert.rejects(collect(), (err: unknown) => err instanceof BrainError && /ollama pull gemma3:4b/.test((err as Error).message));
+    const check = (await checkBrains(config, { deep: false })).local;
+    assert.equal(check.ok, false);
+    assert.match(check.fix ?? "", /ollama pull gemma3:4b/);
+  } finally {
+    ollama.closeAllConnections();
+    ollama.close();
+  }
+  const off = loadConfig({ ...env, ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1" });
+  await assert.rejects(collect(off), (err: unknown) => err instanceof BrainError && /Abra o Ollama/.test((err as Error).message));
+  assert.equal((await detectBrainInfo(loadConfig({ ...env, ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1", GEMINI_API_KEY: "g" }))).brain, "gemini");
 });

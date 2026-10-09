@@ -79,7 +79,7 @@ function parsePort(value, fallback) {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : fallback;
 }
 
-export const BRAINS = Object.freeze(["omniroute", "gemini", "openai", "claude"]);
+export const BRAINS = Object.freeze(["omniroute", "local", "gemini", "openai", "claude"]);
 
 export function loadConfig(env = process.env) {
   const baseUrl = (env.OMNIROUTE_URL || "http://localhost:20128/v1").replace(/\/+$/, "");
@@ -92,9 +92,12 @@ export function loadConfig(env = process.env) {
     accessToken: env.ALFRED_TOKEN || "",
     userName: env.ALFRED_USER_NAME || "",
     systemPrompt: env.ALFRED_SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
-    // "auto" picks OmniRoute if it answers, else Gemini (GEMINI_API_KEY), else OpenAI
-    // (OPENAI_API_KEY), else Claude Code.
+    // "auto" picks OmniRoute if it answers, else the local AI (Ollama) if it answers, else Gemini
+    // (GEMINI_API_KEY), else OpenAI (OPENAI_API_KEY), else Claude Code.
     brain: BRAINS.includes(env.ALFRED_BRAIN) ? env.ALFRED_BRAIN : "auto",
+    // A model running on this PC through Ollama: free, no key, no account, works offline.
+    localUrl: (env.ALFRED_LOCAL_URL || "http://localhost:11434/v1").replace(/\/+$/, ""),
+    localModel: env.ALFRED_LOCAL_MODEL || "gemma3:4b",
     // Google Gemini through its OpenAI-compatible endpoint; the free tier needs only a key.
     geminiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || "",
     geminiModel: env.ALFRED_GEMINI_MODEL || "gemini-flash-latest",
@@ -257,12 +260,17 @@ export function buildTtsRequest(config, text, voice = config.ttsVoice, format = 
 export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 export const OPENAI_STT_URL = "https://api.openai.com/v1/audio/transcriptions";
 
-/** URL/key/body for an OpenAI-compatible streaming chat (OmniRoute, Gemini or OpenAI). */
+/** URL/key/body for an OpenAI-compatible streaming chat (OmniRoute, local, Gemini or OpenAI). */
 export function buildChatCall(config, brain, messages, now = new Date()) {
-  if (brain === "gemini") {
-    // No web here: Google Search grounding is not part of the free tier of current Flash models.
+  if (brain === "gemini" || brain === "local") {
+    // No web for either: Google Search grounding is not in Gemini's free tier, and the local
+    // model only knows what it was trained on.
     const body = buildChatRequest(config, messages, now);
     body.messages[0].content += ` ${NO_WEB_PROMPT}`;
+    if (brain === "local") {
+      body.model = config.localModel;
+      return { url: `${config.localUrl}/chat/completions`, apiKey: "", body };
+    }
     body.model = config.geminiModel;
     body.reasoning_effort = "low"; // short spoken replies; keeps the first word quick
     return { url: `${config.geminiUrl}/chat/completions`, apiKey: config.geminiKey, body };

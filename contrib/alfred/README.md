@@ -12,7 +12,8 @@ ele faz, e três jeitos de usar:
 | Dentro do app do Claude | Artifact publicado de `claude/index.html`   | ditado do teclado    | não       |
 
 O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
-(herda provedores, combos e fallback), senão o **Gemini** do Google (grátis, com
+(herda provedores, combos e fallback), senão a **IA do PC** pelo Ollama (grátis, sem chave), senão
+o **Gemini** do Google (grátis, com
 `GEMINI_API_KEY`), senão a **OpenAI** (com `OPENAI_API_KEY`), senão o **Claude**, pelo Claude
 Code instalado no PC (`claude -p`, só com as ferramentas de ler a web).
 
@@ -101,7 +102,7 @@ No Mac ou no Linux: instale o Node 22, baixe com o comando `git` acima e rode
 ```bash
 node contrib/alfred/cli.mjs                  # conversa por texto (+ voz, se configurada)
 node contrib/alfred/cli.mjs --conversa       # mãos livres: ouve, responde, ouve de novo
-node contrib/alfred/cli.mjs --cerebro=claude # força o cérebro (gemini, claude, openai, omniroute)
+node contrib/alfred/cli.mjs --cerebro=claude # força o cérebro (local, gemini, claude, openai, omniroute)
 node contrib/alfred/cli.mjs --sem-voz
 ```
 
@@ -116,15 +117,41 @@ e dois Ctrl+C saem.
   (`gpt-4o-mini-transcribe`), ou de `ALFRED_STT_MODEL` com um modelo de transcrição do OmniRoute. Ele
   para de gravar sozinho depois de ~1,6 s de silêncio.
 
-## Cérebro grátis: Gemini
+## Trocar o cérebro (sem gastar o Claude)
 
-Para o Alfred não gastar o seu plano do Claude, use o **Gemini** do Google, que tem plano grátis:
+Rode o instalador de novo (o comando do PowerShell acima). Ele pergunta:
+
+```
+  Qual cerebro o Alfred vai usar?
+    1) IA no seu PC   - gratis, sem chave e sem conta (download de 1 a 3 GB)
+    2) Gemini         - gratis, precisa de uma chave da conta Google
+    3) Claude Code    - usa o seu plano Pro ou Max
+```
+
+Só Enter mantém o cérebro atual. A escolha fica gravada em `ALFRED_BRAIN` no `alfred.env`.
+
+### 1) IA no seu PC (Ollama)
+
+Grátis, **sem chave e sem conta**, e funciona até sem internet. O instalador instala o
+[Ollama](https://ollama.com) pelo `winget` e baixa o modelo aberto **Gemma 3** do Google (fala
+português): `gemma3:4b` (3,4 GB) ou, em PC com menos de 8 GB de memória, `gemma3:1b` (0,8 GB). O
+download acontece só uma vez.
+
+- O Ollama abre sozinho com o Windows (ícone de lhama perto do relógio). Se o Alfred disser que
+  não conseguiu falar com a IA do PC, abra o **Ollama** pelo menu Iniciar.
+- A primeira resposta depois de ligar o PC demora alguns segundos (o modelo carrega na memória).
+  Em PC sem placa de vídeo boa, as respostas saem mais devagar que nas IAs da internet.
+- É uma IA bem menor que o Claude: ótima para conversa e perguntas simples, mais fraca em
+  raciocínio longo. Ela **não pesquisa na internet**.
+- Outro modelo: `ollama pull <modelo>` no PowerShell e `ALFRED_LOCAL_MODEL=<modelo>` no
+  `alfred.env`.
+
+### 2) Gemini do Google
 
 1. Entre em <https://aistudio.google.com/apikey> com a sua conta Google e clique em
    **Create API key** (Criar chave de API). Copie a chave.
-2. Rode o instalador de novo (o comando do PowerShell acima). Ele pergunta pela chave: cole com o
-   botão direito do mouse e aperte Enter. Ele grava `GEMINI_API_KEY` e `ALFRED_BRAIN=gemini` no
-   `alfred.env` e reabre o Alfred.
+2. Rode o instalador de novo e escolha **2**. Ele pergunta pela chave: cole com o botão direito do
+   mouse e aperte Enter. Ele grava `GEMINI_API_KEY` e `ALFRED_BRAIN=gemini` no `alfred.env`.
 
 Sem o instalador: abra `Documentos\Alfred\alfred.env` no Bloco de Notas, troque a linha
 `ALFRED_BRAIN=auto` por `ALFRED_BRAIN=gemini`, coloque a chave em `GEMINI_API_KEY=` e reabra o
@@ -149,6 +176,7 @@ lista de links aparece no histórico, clicável, mas não é lida em voz alta.
 | OpenAI    | Modelo de pesquisa `gpt-5-search-api` (`ALFRED_OPENAI_SEARCH_MODEL`), que pesquisa a cada pergunta |
 | OmniRoute | Escolha um modelo que pesquisa sozinho, por exemplo `ALFRED_MODEL=perplexity/sonar`             |
 | Gemini    | Não pesquisa: a pesquisa do Google não faz parte do plano grátis                                |
+| IA do PC  | Não pesquisa: responde só com o que o modelo já sabe                                            |
 
 `ALFRED_WEB=full` (padrão) pesquisa e lê páginas; `search` só pesquisa; `off` desliga a internet.
 **Cuidados:** cada pesquisa gasta um pouco mais do seu plano ou crédito, e respostas com pesquisa
@@ -180,6 +208,8 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | Abre no PC mas não no celular                        | Use `node contrib/alfred/server.mjs --tunel` e abra o link no celular. Veja "Falar com o Alfred pelo celular".                                    |
 | `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
 | Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `GEMINI_API_KEY` (grátis), `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
+| "Não consegui falar com a IA do PC (Ollama)"         | Abra o **Ollama** pelo menu Iniciar e pergunte de novo.                                                                                            |
+| "A IA do PC ainda não tem o modelo …"                | Rode no PowerShell o `ollama pull …` que a mensagem mostra.                                                                                        |
 | "O Gemini atingiu o limite grátis"                   | Passou do limite do plano grátis. Espere um minuto, ou até o dia seguinte se foi o limite do dia.                                                  |
 | "O Claude Code não está logado"                      | Rode `claude` uma vez no terminal e entre na sua conta.                                                                                            |
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
@@ -288,7 +318,9 @@ ele envia sozinho.
 
 | Variável               | Padrão                       | Descrição                                       |
 | ---------------------- | ---------------------------- | ----------------------------------------------- |
-| `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `gemini`, `openai` ou `claude` (Claude Code) |
+| `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `local` (Ollama), `gemini`, `openai` ou `claude` (Claude Code) |
+| `ALFRED_LOCAL_MODEL`   | `gemma3:4b`                  | Modelo do Ollama quando o cérebro é `local`      |
+| `ALFRED_LOCAL_URL`     | `http://localhost:11434/v1`  | Endpoint OpenAI-compatível do Ollama             |
 | `GEMINI_API_KEY`       | —                            | Chave grátis do Gemini (aistudio.google.com/apikey) |
 | `ALFRED_GEMINI_MODEL`  | `gemini-flash-latest`        | Modelo quando o cérebro é o Gemini (sem internet) |
 | `ALFRED_CLAUDE_MODEL`  | —                            | Modelo do Claude Code (`sonnet`, `opus`…)        |
@@ -315,7 +347,7 @@ ele envia sozinho.
 ## Arquitetura
 
 ```
-Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Gemini | OpenAI | claude -p
+Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Ollama | Gemini | OpenAI | claude -p
           ▲                                       │
           ├────────── SSE {text} ◀────────────────┘
           └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ OpenAI ou OmniRoute /audio/speech (opcional)
@@ -323,7 +355,7 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 
 - `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE, comando do Claude
   Code, argumentos do sox); testadas em `tests/unit/alfred-lib.test.ts` e `alfred-brain.test.ts`.
-- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Gemini, OpenAI ou Claude Code, em streaming.
+- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Ollama (IA do PC), Gemini, OpenAI ou Claude Code, em streaming.
   O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
 - `public/hud.css` + `public/hud.mjs` — o visual e o globo de ~700 partículas: gira devagar em

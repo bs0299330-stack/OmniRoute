@@ -44,9 +44,9 @@ $Files = @(
 function Say($text, $color = "Gray") { Write-Host $text -ForegroundColor $color }
 
 # Grava NOME=valor no alfred.env: troca a linha que ja existe ou acrescenta no final.
-# O valor precisa ser simples (letras, numeros, - _ .), o que vale para as chaves de API.
+# O valor precisa ser simples (letras, numeros, - _ . :), o que vale para chaves e modelos.
 function Set-AlfredEnv($file, $name, $value) {
-  if ($value -notmatch '^[A-Za-z0-9_.\-]+$') { throw "valor invalido para $name" }
+  if ($value -notmatch '^[A-Za-z0-9_.:\-]+$') { throw "valor invalido para $name" }
   $text = if (Test-Path $file) { [IO.File]::ReadAllText($file) } else { "" }
   $pattern = "(?m)^[ \t]*$name[ \t]*=.*$"
   if ($text -match $pattern) {
@@ -132,45 +132,106 @@ if ($major -lt 22) {
 }
 Say "        Node.js $major pronto." "Green"
 
-# Cerebro gratis: o Gemini do Google (nao gasta o plano do Claude).
+# Cerebro: quem pensa pelo Alfred. Rodar o instalador de novo permite trocar.
 $EnvFile = Join-Path $Dest "alfred.env"
 if (-not (Test-Path $EnvFile)) { Copy-Item (Join-Path $Dest "alfred.env.example") $EnvFile }
-$hasGemini = [bool](Get-AlfredEnv $EnvFile "GEMINI_API_KEY")
-if (-not $hasGemini) {
-  Say ""
-  Say "  Cerebro gratis: o Gemini do Google responde sem gastar o seu plano do Claude." "Yellow"
-  Say "  Precisa de uma chave (gratis): entre com sua conta Google e clique em 'Create API key'."
-  $answer = Read-Host "  Abrir o site da chave agora? (S/N)"
-  if ($answer -match "^[sSyY]") { Start-Process "https://aistudio.google.com/apikey" }
-  $key = (Read-Host "  Cole a chave do Gemini (botao direito do mouse) e aperte Enter, ou so Enter para pular").Trim()
-  if ($key -match '^[A-Za-z0-9_.\-]{20,200}$') {
-    Set-AlfredEnv $EnvFile "GEMINI_API_KEY" $key
-    Set-AlfredEnv $EnvFile "ALFRED_BRAIN" "gemini"
-    $hasGemini = $true
-    Say "        Pronto: o cerebro agora e o Gemini (gratis)." "Green"
-  } elseif ($key) {
-    Say "  Isso nao parece uma chave do Gemini. Rode o instalador de novo e cole a chave inteira." "Red"
-  }
+
+function Find-Ollama {
+  $cmd = Get-Command ollama -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $fallback = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
+  if (Test-Path $fallback) { return $fallback }
+  return $null
 }
 
-# Sem Gemini: o mais simples e o Claude Code deste PC.
-$claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
-$hasClaude = (Get-Command claude -ErrorAction SilentlyContinue) -or (Test-Path $claudeExe)
-if (-not $hasClaude -and -not $hasGemini) {
-  Say ""
-  Say "  O Alfred precisa de um 'cerebro'. O mais simples e o Claude Code (plano Pro ou Max)." "Yellow"
-  $answer = Read-Host "  Instalar o Claude Code agora? (S/N)"
-  if ($answer -match "^[sSyY]") {
+function Test-OllamaRunning {
+  try { Invoke-RestMethod -Uri "http://localhost:11434/api/version" -TimeoutSec 3 | Out-Null; return $true } catch { return $false }
+}
+
+# 1) IA no PC: o Ollama roda um modelo aberto (Gemma 3) neste computador. Gratis, sem chave.
+function Install-LocalBrain {
+  $ollama = Find-Ollama
+  if (-not $ollama) {
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+      Say "        Instalando o Ollama (o programa que roda a IA no PC)..." "Yellow"
+      winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements
+      $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+      $ollama = Find-Ollama
+    }
+    if (-not $ollama) {
+      Say "  Nao consegui instalar o Ollama sozinho." "Red"
+      Say "  Baixe no site que vai abrir, instale e rode este comando de novo."
+      Start-Process "https://ollama.com/download"
+      return
+    }
+  }
+  if (-not (Test-OllamaRunning)) {
+    $app = Join-Path (Split-Path $ollama) "ollama app.exe"
+    if (Test-Path $app) { Start-Process $app } else { Start-Process $ollama -ArgumentList "serve" -WindowStyle Hidden }
+    for ($i = 0; $i -lt 20 -and -not (Test-OllamaRunning); $i++) { Start-Sleep -Seconds 1 }
+  }
+  # Pouca memoria: o modelo menor (0,8 GB). Senao o de 4B (3,4 GB), bem melhor de conversa.
+  $ramGB = 8
+  try { $ramGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB) } catch {}
+  $model = if ($ramGB -lt 8) { "gemma3:1b" } else { "gemma3:4b" }
+  $size = if ($model -eq "gemma3:1b") { "0,8 GB" } else { "3,4 GB" }
+  Say "        Baixando a IA $model ($size, so desta vez). Pode levar varios minutos..." "Yellow"
+  & $ollama pull $model
+  if ($LASTEXITCODE -ne 0) {
+    Say "  O download da IA falhou. Confira a internet e rode este comando de novo." "Red"
+    return
+  }
+  Set-AlfredEnv $EnvFile "ALFRED_LOCAL_MODEL" $model
+  Set-AlfredEnv $EnvFile "ALFRED_BRAIN" "local"
+  Say "        Pronto: o cerebro agora e a IA do seu PC (gratis, sem chave)." "Green"
+}
+
+# 2) Gemini do Google: gratis, com uma chave da conta Google.
+function Set-GeminiBrain {
+  if (-not (Get-AlfredEnv $EnvFile "GEMINI_API_KEY")) {
+    Say "  Precisa de uma chave (gratis): entre com sua conta Google e clique em 'Create API key'."
+    Start-Process "https://aistudio.google.com/apikey"
+    $key = (Read-Host "  Cole a chave do Gemini (botao direito do mouse) e aperte Enter").Trim()
+    if ($key -notmatch '^[A-Za-z0-9_.\-]{20,200}$') {
+      Say "  Isso nao parece uma chave do Gemini. Rode o instalador de novo e cole a chave inteira." "Red"
+      return
+    }
+    Set-AlfredEnv $EnvFile "GEMINI_API_KEY" $key
+  }
+  Set-AlfredEnv $EnvFile "ALFRED_BRAIN" "gemini"
+  Say "        Pronto: o cerebro agora e o Gemini (gratis)." "Green"
+}
+
+# 3) Claude Code: usa o plano Pro ou Max da pessoa.
+function Set-ClaudeBrain {
+  $claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
+  if (-not ((Get-Command claude -ErrorAction SilentlyContinue) -or (Test-Path $claudeExe))) {
     try {
       Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
       Say "        Claude Code instalado. Falta entrar na sua conta (uma vez so):" "Green"
       Say "        abra um PowerShell NOVO, digite  claude  e siga o login no navegador."
     } catch {
       Say "  Nao consegui instalar o Claude Code: $($_.Exception.Message)" "Red"
+      return
     }
-  } else {
-    Say "  Tudo bem. Outra opcao: coloque OPENAI_API_KEY no arquivo $Dest\alfred.env" "DarkGray"
   }
+  Set-AlfredEnv $EnvFile "ALFRED_BRAIN" "claude"
+  Say "        Pronto: o cerebro agora e o Claude." "Green"
+}
+
+$current = Get-AlfredEnv $EnvFile "ALFRED_BRAIN"
+$names = @{ local = "IA do PC"; gemini = "Gemini"; claude = "Claude"; openai = "OpenAI"; omniroute = "OmniRoute" }
+Say ""
+Say "  Qual cerebro o Alfred vai usar?" "Yellow"
+Say "    1) IA no seu PC   - gratis, sem chave e sem conta (download de 1 a 3 GB)"
+Say "    2) Gemini         - gratis, precisa de uma chave da conta Google"
+Say "    3) Claude Code    - usa o seu plano Pro ou Max"
+$keep = if ($names[$current]) { "manter $($names[$current])" } else { "manter como esta" }
+$choice = (Read-Host "  Digite 1, 2 ou 3 e aperte Enter (so Enter = $keep)").Trim()
+switch ($choice) {
+  "1" { Install-LocalBrain }
+  "2" { Set-GeminiBrain }
+  "3" { Set-ClaudeBrain }
 }
 
 # 3. Atalho e abertura

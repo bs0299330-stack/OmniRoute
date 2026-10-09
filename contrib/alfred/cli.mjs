@@ -4,7 +4,7 @@
 //
 //   node contrib/alfred/cli.mjs                  conversa por texto (+ voz, se configurada)
 //   node contrib/alfred/cli.mjs --conversa       mãos livres: ouve, responde, ouve de novo
-//   node contrib/alfred/cli.mjs --cerebro=claude usa o Claude Code como cérebro
+//   node contrib/alfred/cli.mjs --cerebro=claude usa o Claude Code como cérebro (ou local, gemini…)
 //
 // Lê contrib/alfred/alfred.env, como o servidor.
 
@@ -394,13 +394,14 @@ function banner() {
   if (!brainFound) {
     console.log(red("   ⚠  Nenhum cérebro está funcionando, então o Alfred não consegue responder."));
     console.log("      Escolha UMA opção (depois feche e abra o Alfred):");
-    console.log(`      ${glow("1.")} Gemini (grátis): crie uma chave em ${cyan("aistudio.google.com/apikey")}`);
+    console.log(`      ${glow("1.")} IA no seu PC (grátis, sem chave): rode o instalador de novo e escolha a opção 1.`);
+    console.log(`      ${glow("2.")} Gemini (grátis): crie uma chave em ${cyan("aistudio.google.com/apikey")}`);
     console.log("         e coloque em GEMINI_API_KEY no arquivo alfred.env.");
-    console.log(`      ${glow("2.")} Claude (se você tem plano Pro ou Max): no PowerShell rode`);
+    console.log(`      ${glow("3.")} Claude (se você tem plano Pro ou Max): no PowerShell rode`);
     console.log(`         ${cyan("irm https://claude.ai/install.ps1 | iex")}`);
     console.log("         feche e abra o terminal, rode " + cyan("claude") + " e faça o login.");
-    console.log(`      ${glow("3.")} OpenAI: coloque sua chave em OPENAI_API_KEY no arquivo alfred.env.`);
-    console.log(`      ${glow("4.")} OmniRoute: deixe o OmniRoute ligado.`);
+    console.log(`      ${glow("4.")} OpenAI: coloque sua chave em OPENAI_API_KEY no arquivo alfred.env.`);
+    console.log(`      ${glow("5.")} OmniRoute: deixe o OmniRoute ligado.`);
     console.log(dim("      Digite /diagnostico para testar tudo.\n"));
   }
 }
