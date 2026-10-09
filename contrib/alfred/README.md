@@ -172,6 +172,10 @@ por voz.
   duas batidas curtas e fortes, com 0,15 a 0,8 s entre elas e silêncio antes e depois. Fala, música,
   três palmas seguidas e digitação são ignoradas. Enquanto o Alfred ouve, pensa ou fala, as palmas
   ficam desligadas.
+- **Música ao chamar:** antes do "Pois não", toca o **Tema do Alfred**, uma abertura original de
+  cerca de 6 s composta na hora pelo navegador (`playGothamTheme` em `public/hud.mjs`). Em
+  **Escolher música…** você pode usar um arquivo seu (MP3 etc.), tocado por 8, 15, 30 s ou inteiro.
+  O arquivo fica guardado só neste navegador. O 🎙 ou Esc cortam a música.
 - **Sensibilidade:** use *Baixa* em ambiente barulhento e *Alta* se as palmas forem fracas ou
   estiverem longe do microfone.
 - A página precisa estar aberta, mas pode ficar atrás de outras janelas. Depois de abrir, o

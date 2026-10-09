@@ -299,3 +299,109 @@ export function setupDrawer({ button, drawer, scrim }) {
   });
   return { open };
 }
+
+/**
+ * "Tema do Alfred": an original ~6.5 s dark intro synthesized live (no audio file): a low drone
+ * opening up, accelerating heartbeat hits, a creeping minor-second string tension and a final boom.
+ * Returns `{ done: Promise, stop() }`; `output` lets the caller tap it (e.g. an AnalyserNode).
+ */
+export function playGothamTheme(ctx, output = ctx.destination) {
+  const t0 = ctx.currentTime + 0.05;
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0.9, t0);
+  master.gain.setValueAtTime(0.9, t0 + 5.6);
+  master.gain.linearRampToValueAtTime(0.0001, t0 + 6.5);
+  master.connect(output);
+  const nodes = [];
+  const keep = (n) => (nodes.push(n), n);
+
+  // drone: two detuned saws through a slowly opening low-pass
+  const filter = keep(ctx.createBiquadFilter());
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(140, t0);
+  filter.frequency.exponentialRampToValueAtTime(1100, t0 + 4.6);
+  const droneGain = keep(ctx.createGain());
+  droneGain.gain.setValueAtTime(0.0001, t0);
+  droneGain.gain.exponentialRampToValueAtTime(0.22, t0 + 2.5);
+  filter.connect(droneGain).connect(master);
+  for (const f of [55, 55.4, 27.5]) {
+    const o = keep(ctx.createOscillator());
+    o.type = "sawtooth";
+    o.frequency.value = f;
+    o.connect(filter);
+    o.start(t0);
+    o.stop(t0 + 6.6);
+  }
+
+  // strings: minor second (A–Bb), creeping in
+  const strings = keep(ctx.createGain());
+  strings.gain.setValueAtTime(0.0001, t0 + 1.8);
+  strings.gain.exponentialRampToValueAtTime(0.05, t0 + 4.6);
+  strings.gain.exponentialRampToValueAtTime(0.0001, t0 + 5.2);
+  strings.connect(master);
+  for (const f of [440, 466.16]) {
+    const o = keep(ctx.createOscillator());
+    o.type = "sawtooth";
+    o.frequency.value = f;
+    const lfo = keep(ctx.createOscillator());
+    const depth = keep(ctx.createGain());
+    lfo.frequency.value = 5.5;
+    depth.gain.value = 3;
+    lfo.connect(depth).connect(o.frequency);
+    o.connect(strings);
+    o.start(t0);
+    lfo.start(t0);
+    o.stop(t0 + 5.3);
+    lfo.stop(t0 + 5.3);
+  }
+
+  // heartbeat hits, accelerating, then the final boom
+  const hit = (at, size) => {
+    const o = keep(ctx.createOscillator());
+    const g = keep(ctx.createGain());
+    o.frequency.setValueAtTime(110 * size, t0 + at);
+    o.frequency.exponentialRampToValueAtTime(38, t0 + at + 0.35 * size);
+    g.gain.setValueAtTime(0.0001, t0 + at);
+    g.gain.exponentialRampToValueAtTime(0.9 * Math.min(1, size), t0 + at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.5 * size);
+    o.connect(g).connect(master);
+    o.start(t0 + at);
+    o.stop(t0 + at + 0.6 * size + 0.05);
+  };
+  [0.2, 1.5, 2.6, 3.4, 3.95, 4.35].forEach((at) => hit(at, 1));
+  hit(4.85, 2.2);
+  const len = Math.floor(ctx.sampleRate * 1.2);
+  const noise = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = noise.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.25));
+  const burst = keep(ctx.createBufferSource());
+  burst.buffer = noise;
+  const burstGain = keep(ctx.createGain());
+  burstGain.gain.value = 0.35;
+  burst.connect(burstGain).connect(master);
+  burst.start(t0 + 4.85);
+
+  let timer;
+  let finish;
+  const done = new Promise((resolve) => {
+    finish = resolve;
+    timer = setTimeout(resolve, 6600);
+  });
+  return {
+    done,
+    stop() {
+      clearTimeout(timer);
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.08);
+      setTimeout(() => {
+        for (const n of nodes) {
+          try {
+            n.disconnect();
+          } catch {}
+        }
+        master.disconnect();
+      }, 400);
+      finish();
+    },
+  };
+}

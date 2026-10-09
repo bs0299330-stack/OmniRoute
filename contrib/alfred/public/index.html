@@ -65,6 +65,24 @@
             <option value="alta">Alta (palmas fracas ou longe do microfone)</option>
           </select>
         </label>
+        <div class="field" id="introField">
+          <label class="switch" for="introOn">Tocar música ao chamar <input type="checkbox" id="introOn" checked /></label>
+          <div class="row">
+            <span id="introName" class="help">Tema do Alfred (original)</span>
+            <button class="ghost" id="introPick" type="button">Escolher música…</button>
+            <button class="ghost" id="introRemove" type="button" hidden>Remover</button>
+          </div>
+          <input type="file" id="introFile" accept="audio/*" hidden />
+          <label class="field" for="introLength">
+            Tocar por
+            <select id="introLength">
+              <option value="8">8 segundos</option>
+              <option value="15" selected>15 segundos</option>
+              <option value="30">30 segundos</option>
+              <option value="0">Música inteira</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <section>
@@ -128,7 +146,7 @@
         isStopPhrase,
         matchWakeWord,
       } from "./voice.mjs";
-      import { STATE_LABELS, createOrb, drawSkyline, setupDrawer, startClock } from "./hud.mjs";
+      import { STATE_LABELS, createOrb, drawSkyline, playGothamTheme, setupDrawer, startClock } from "./hud.mjs";
       import { startClapListener } from "./clap.mjs";
 
       const $ = (id) => document.getElementById(id);
@@ -179,7 +197,8 @@
       }
       function settle() {
         // as palmas só valem com o Alfred parado (sem ouvir frase, sem falar, sem pensar)
-        claps?.setMuted(busy || speaker.speaking || listening === "command" || voiceSession);
+        claps?.setMuted(busy || speaker.speaking || listening === "command" || voiceSession || !!intro);
+        if (intro) return setPhase("speaking", "♪ " + introTitle);
         if (busy) return setPhase("thinking");
         if (speaker.speaking) return setPhase("speaking");
         if (listening === "command") return setPhase("listening", voiceSession ? "Ouvindo — pode falar" : "Ouvindo");
@@ -594,12 +613,14 @@
       }
 
       function interrupt() {
+        stopIntro();
         speaker.cancel();
         settle();
       }
 
       $("mic").addEventListener("click", () => {
         unlockAudio();
+        if (intro) return stopIntro(); // corta a música de abertura
         if (voiceSession) endVoiceSession();
         else startVoiceSession();
       });
@@ -624,8 +645,13 @@
         "no-mic": "Nenhum microfone encontrado para ouvir as palmas.",
       };
 
-      function onDoubleClap() {
-        if (voiceSession || busy || speaker.speaking) return;
+      async function onDoubleClap() {
+        if (voiceSession || busy || speaker.speaking || intro) return;
+        if ($("introOn").checked) {
+          const music = await idb("get");
+          if (music) await playIntro(music);
+          else await playTheme();
+        }
         stopListening(); // sai do “Chamar por Alfred”, se estiver esperando
         voiceSession = true;
         silentRounds = 0;
@@ -682,6 +708,121 @@
           enableClaps();
         } else disableClaps();
       });
+      // ---------- Música de abertura ----------
+      // O arquivo escolhido fica guardado no navegador deste PC (IndexedDB) e toca antes do
+      // “Pois não, senhor?” quando você bate duas palmas.
+      let intro = null; // { audio, timer, done }
+      let introTitle = "";
+
+      function idb(op, value) {
+        return new Promise((resolve) => {
+          let req;
+          try {
+            req = indexedDB.open("alfred", 1);
+          } catch {
+            return resolve(null);
+          }
+          req.onupgradeneeded = () => req.result.createObjectStore("files");
+          req.onerror = () => resolve(null);
+          req.onsuccess = () => {
+            const tx = req.result.transaction("files", op === "get" ? "readonly" : "readwrite");
+            const store = tx.objectStore("files");
+            const r = op === "get" ? store.get("intro") : op === "set" ? store.put(value, "intro") : store.delete("intro");
+            r.onsuccess = () => resolve(op === "get" ? r.result ?? null : true);
+            r.onerror = () => resolve(null);
+          };
+        });
+      }
+
+      function playIntro(music) {
+        return new Promise((resolve) => {
+          const url = URL.createObjectURL(music.blob);
+          const audio = new Audio(url);
+          introTitle = music.name.replace(/\.[^.]+$/, "");
+          const seconds = Number($("introLength").value);
+          let fading = null;
+          const done = () => {
+            if (!intro || intro.audio !== audio) return;
+            clearTimeout(intro.timer);
+            clearInterval(fading);
+            audio.pause();
+            URL.revokeObjectURL(url);
+            intro = null;
+            settle();
+            resolve();
+          };
+          const fadeOut = () => {
+            fading = setInterval(() => {
+              audio.volume = Math.max(0, audio.volume - 0.05);
+              if (audio.volume <= 0.01) done();
+            }, 100); // ~2 s
+          };
+          intro = { audio, done, timer: seconds > 0 ? setTimeout(fadeOut, seconds * 1000) : null };
+          audio.onended = done;
+          audio.onerror = done;
+          analyse(audio); // o globo pulsa com a música
+          $("caption").textContent = "♪ " + introTitle;
+          settle();
+          audio.play().catch(done);
+        });
+      }
+
+      // Sem arquivo escolhido: o “Tema do Alfred”, composto na hora pelo navegador.
+      function playTheme() {
+        try {
+          audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+        } catch {
+          return Promise.resolve();
+        }
+        if (audioCtx.state !== "running") audioCtx.resume();
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.connect(audioCtx.destination);
+        orb.attachAnalyser(analyser);
+        const theme = playGothamTheme(audioCtx, analyser);
+        introTitle = "Tema do Alfred";
+        $("caption").textContent = "♪ " + introTitle;
+        return new Promise((resolve) => {
+          const done = () => {
+            if (!intro || intro.theme !== theme) return;
+            intro = null;
+            settle();
+            resolve();
+          };
+          intro = { theme, done: () => (theme.stop(), done()) };
+          theme.done.then(done);
+          settle();
+        });
+      }
+
+      function stopIntro() {
+        intro?.done();
+      }
+
+      async function showIntro() {
+        const music = await idb("get");
+        $("introName").textContent = music ? music.name : "Tema do Alfred (original)";
+        $("introRemove").hidden = !music;
+      }
+      $("introPick").addEventListener("click", () => $("introFile").click());
+      $("introFile").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        const ok = await idb("set", { name: file.name, blob: file });
+        setStatus(ok ? `Música de abertura: ${file.name}` : "Não consegui guardar a música neste navegador.", !ok);
+        showIntro();
+      });
+      $("introRemove").addEventListener("click", async () => {
+        await idb("delete");
+        showIntro();
+      });
+      $("introOn").checked = store.get("toggle:introOn", true);
+      $("introOn").addEventListener("change", (e) => store.set("toggle:introOn", e.target.checked));
+      $("introLength").value = store.get("introLength", "15");
+      $("introLength").addEventListener("change", (e) => store.set("introLength", e.target.value));
+      showIntro();
+
       $("clapSensitivity").addEventListener("change", (e) => {
         store.set("clapSensitivity", e.target.value);
         claps?.setSensitivity(e.target.value);
