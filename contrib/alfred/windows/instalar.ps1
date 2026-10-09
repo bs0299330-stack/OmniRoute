@@ -25,6 +25,7 @@ $Files = @(
   "cli.mjs",
   "lib.mjs",
   "server.mjs",
+  "public/clap.mjs",
   "public/hud.css",
   "public/hud.mjs",
   "public/index.html",

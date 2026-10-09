@@ -74,6 +74,7 @@ const STATIC_FILES = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/voice.mjs": ["voice.mjs", "text/javascript; charset=utf-8"],
   "/hud.mjs": ["hud.mjs", "text/javascript; charset=utf-8"],
+  "/clap.mjs": ["clap.mjs", "text/javascript; charset=utf-8"],
   "/hud.css": ["hud.css", "text/css; charset=utf-8"],
 };
 

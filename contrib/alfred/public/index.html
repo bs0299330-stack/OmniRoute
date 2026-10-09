@@ -56,6 +56,15 @@
         <h3>Opções</h3>
         <label class="switch" for="speak">Falar as respostas <input type="checkbox" id="speak" checked /></label>
         <label class="switch" for="wake">Chamar por “Alfred” <input type="checkbox" id="wake" /></label>
+        <label class="switch" for="clap">Ativar com duas palmas <input type="checkbox" id="clap" /></label>
+        <label class="field" for="clapSensitivity" id="clapSensitivityField" hidden>
+          Sensibilidade das palmas
+          <select id="clapSensitivity">
+            <option value="baixa">Baixa (ambiente barulhento)</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta (palmas fracas ou longe do microfone)</option>
+          </select>
+        </label>
       </section>
 
       <section>
@@ -106,7 +115,7 @@
           <dt>Servidor</dt>
           <dd id="online">online</dd>
         </dl>
-        <p class="help">🎙 liga a conversa por voz · diga “tchau” para encerrar · segure Espaço para uma frase · Esc interrompe a fala</p>
+        <p class="help">🎙 liga a conversa por voz · diga “tchau” para encerrar · segure Espaço para uma frase · Esc interrompe a fala · com as palmas ligadas, bata duas palmas para chamar o Alfred</p>
       </section>
     </aside>
 
@@ -120,6 +129,7 @@
         matchWakeWord,
       } from "./voice.mjs";
       import { STATE_LABELS, createOrb, drawSkyline, setupDrawer, startClock } from "./hud.mjs";
+      import { startClapListener } from "./clap.mjs";
 
       const $ = (id) => document.getElementById(id);
       const log = $("log");
@@ -168,11 +178,15 @@
         $("state").textContent = label || STATE_LABELS[phase];
       }
       function settle() {
+        // as palmas só valem com o Alfred parado (sem ouvir frase, sem falar, sem pensar)
+        claps?.setMuted(busy || speaker.speaking || listening === "command" || voiceSession);
         if (busy) return setPhase("thinking");
         if (speaker.speaking) return setPhase("speaking");
         if (listening === "command") return setPhase("listening", voiceSession ? "Ouvindo — pode falar" : "Ouvindo");
-        if (listening === "wake") return setPhase("idle", "Aguardando “Alfred”");
-        setPhase("idle");
+        const hints = [];
+        if (listening === "wake") hints.push("diga “Alfred”");
+        if (claps?.running) hints.push("bata duas palmas");
+        setPhase("idle", hints.length ? `Em espera — ${hints.join(" ou ")}` : undefined);
       }
 
       let audioCtx = null;
@@ -209,6 +223,12 @@
       });
       function unlockAudio() {
         speaker.unlock();
+        if (claps && !claps.running) {
+          claps.resume().then(() => {
+            if ($("status").textContent.startsWith("Clique uma vez")) setStatus("");
+            settle();
+          });
+        }
         try {
           audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
           if (audioCtx.state === "suspended") audioCtx.resume();
@@ -592,6 +612,80 @@
         store.set("toggle:speak", e.target.checked);
         if (!e.target.checked) speaker.cancel();
       });
+
+      // ---------- Duas palmas ----------
+      // O microfone fica aberto só para o detector de palmas (no próprio PC, nada é enviado).
+      // Duas palmas com o Alfred parado: ele responde e começa a conversa por voz.
+      let claps = null;
+      let clapStarting = false;
+      const CLAP_ERRORS = {
+        unsupported: "Este navegador não consegue ouvir palmas. Use o Edge ou o Chrome.",
+        denied: "O navegador bloqueou o microfone para as palmas. Clique no cadeado ao lado do endereço → Microfone → Permitir.",
+        "no-mic": "Nenhum microfone encontrado para ouvir as palmas.",
+      };
+
+      function onDoubleClap() {
+        if (voiceSession || busy || speaker.speaking) return;
+        stopListening(); // sai do “Chamar por Alfred”, se estiver esperando
+        voiceSession = true;
+        silentRounds = 0;
+        quickEnds = 0;
+        cueNext = false;
+        syncMic();
+        earcons.listen();
+        setStatus("Conversa por voz ligada · diga “tchau” ou clique no 🎙 para encerrar");
+        $("caption").textContent = "Pois não, senhor?";
+        if ($("speak").checked && speaker.available) speaker.sayAll("Pois não, senhor?"); // ao terminar, ele ouve
+        else listen("command");
+        settle();
+      }
+
+      async function enableClaps() {
+        if (claps || clapStarting) return;
+        clapStarting = true;
+        try {
+          claps = await startClapListener({
+            sensitivity: $("clapSensitivity").value,
+            onDoubleClap,
+          });
+          if (!$("clap").checked) {
+            claps.stop(); // desligaram enquanto o microfone abria
+            claps = null;
+            return;
+          }
+          if (!claps.running) setStatus("Clique uma vez na página para ligar as palmas (o navegador exige).");
+        } catch (err) {
+          $("clap").checked = false;
+          store.set("toggle:clap", false);
+          setStatus(CLAP_ERRORS[err?.code] || "Não consegui ligar o detector de palmas.", true);
+        } finally {
+          clapStarting = false;
+          $("clapSensitivityField").hidden = !$("clap").checked;
+          settle();
+        }
+      }
+
+      function disableClaps() {
+        claps?.stop();
+        claps = null;
+        settle();
+      }
+
+      $("clap").checked = store.get("toggle:clap", false);
+      $("clapSensitivity").value = store.get("clapSensitivity", "media");
+      $("clapSensitivityField").hidden = !$("clap").checked;
+      $("clap").addEventListener("change", (e) => {
+        store.set("toggle:clap", e.target.checked);
+        $("clapSensitivityField").hidden = !e.target.checked;
+        if (e.target.checked) {
+          unlockAudio();
+          enableClaps();
+        } else disableClaps();
+      });
+      $("clapSensitivity").addEventListener("change", (e) => {
+        store.set("clapSensitivity", e.target.value);
+        claps?.setSensitivity(e.target.value);
+      });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape") interrupt();
         // Espaço (fora do campo de texto): segure para falar uma frase só.
@@ -654,6 +748,7 @@
       render();
       settle();
       if ($("wake").checked) scheduleListening();
+      if ($("clap").checked) enableClaps();
     </script>
   </body>
 </html>

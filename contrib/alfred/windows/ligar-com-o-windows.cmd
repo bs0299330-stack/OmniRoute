@@ -11,8 +11,15 @@ set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 >> "%STARTUP%\Alfred.cmd" echo cd /d "%ALFRED_DIR%"
 >> "%STARTUP%\Alfred.cmd" echo start "Alfred" /min "%NODE%" server.mjs
 echo.
+choice /c SN /n /m " Abrir o Alfred no Edge sempre que o PC ligar? E o que deixa as palmas prontas. [S/N] "
+if errorlevel 2 goto sem_navegador
+>> "%STARTUP%\Alfred.cmd" echo ping -n 6 127.0.0.1 ^>nul
+>> "%STARTUP%\Alfred.cmd" echo start "" msedge --autoplay-policy=no-user-gesture-required http://localhost:20140/
+:sem_navegador
+echo.
 echo  Pronto! O Alfred vai ligar sozinho quando voce entrar no Windows.
 echo  Ele fica minimizado na barra de tarefas; o site e http://localhost:20140
+echo  Para as palmas: no menu do Alfred, ligue "Ativar com duas palmas".
 echo  Para desfazer, rode desligar-com-o-windows.cmd
 echo.
 pause

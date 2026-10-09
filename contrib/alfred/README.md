@@ -162,6 +162,23 @@ própria voz. Depois de cerca de 1 minuto em silêncio, a conversa pausa sozinha
 estiver bloqueado, sem permissão ou sem internet para o reconhecimento, a tela diz qual é o
 problema e o que fazer.
 
+### Chamar com duas palmas
+
+No menu ≡, ligue **Ativar com duas palmas**. O navegador pede o microfone na primeira vez. Com o
+Alfred parado, bata **duas palmas seguidas**: ele responde "Pois não, senhor?" e começa a conversa
+por voz.
+
+- O detector roda no próprio PC, em `public/clap.mjs`, e nada do microfone é enviado. Ele só aceita
+  duas batidas curtas e fortes, com 0,15 a 0,8 s entre elas e silêncio antes e depois. Fala, música,
+  três palmas seguidas e digitação são ignoradas. Enquanto o Alfred ouve, pensa ou fala, as palmas
+  ficam desligadas.
+- **Sensibilidade:** use *Baixa* em ambiente barulhento e *Alta* se as palmas forem fracas ou
+  estiverem longe do microfone.
+- A página precisa estar aberta, mas pode ficar atrás de outras janelas. Depois de abrir, o
+  navegador exige **um clique na página** para liberar o som, e o Alfred avisa quando falta isso.
+  Para já ligar tudo junto com o PC, rode `ligar-com-o-windows.cmd` e responda **S** para abrir o
+  Alfred no Edge.
+
 No **terminal**, o microfone precisa do `sox` e de `OPENAI_API_KEY` (para transcrever). Sem chave,
 converse por voz pelo site.
 
@@ -262,6 +279,9 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
   espera, fica amarelo e "respira" ouvindo, gira em faixas processando e se agita com a voz
   falando (pelo volume real da voz de IA, ou pelas palavras da voz do navegador).
 - `server.mjs` — HTTP: serve a página, valida, injeta o prompt de sistema e repassa o stream.
+- `public/clap.mjs` — detector de duas palmas (testado com áudio sintético em
+  `tests/unit/alfred-clap.test.ts`), rodando num AudioWorklet para ouvir mesmo com a aba em segundo
+  plano.
 - `public/voice.mjs` — motor de voz compartilhado: limpeza do texto, divisão em frases, escolha da
   voz, fila de fala (navegador ou neural), palavra de ativação e bipes; testado em
   `tests/unit/alfred-voice.test.ts`.
