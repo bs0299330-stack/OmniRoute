@@ -43,6 +43,28 @@ $Files = @(
 
 function Say($text, $color = "Gray") { Write-Host $text -ForegroundColor $color }
 
+# Grava NOME=valor no alfred.env: troca a linha que ja existe ou acrescenta no final.
+# O valor precisa ser simples (letras, numeros, - _ .), o que vale para as chaves de API.
+function Set-AlfredEnv($file, $name, $value) {
+  if ($value -notmatch '^[A-Za-z0-9_.\-]+$') { throw "valor invalido para $name" }
+  $text = if (Test-Path $file) { [IO.File]::ReadAllText($file) } else { "" }
+  $pattern = "(?m)^[ \t]*$name[ \t]*=.*$"
+  if ($text -match $pattern) {
+    $text = ([regex]$pattern).Replace($text, "$name=$value", 1)
+  } else {
+    if ($text -and -not $text.EndsWith("`n")) { $text += "`r`n" }
+    $text += "$name=$value`r`n"
+  }
+  [IO.File]::WriteAllText($file, $text, (New-Object System.Text.UTF8Encoding $false))
+}
+
+function Get-AlfredEnv($file, $name) {
+  if (-not (Test-Path $file)) { return "" }
+  $m = [regex]::Match([IO.File]::ReadAllText($file), "(?m)^[ \t]*$name[ \t]*=[ \t]*(\S*)")
+  if ($m.Success) { return $m.Groups[1].Value }
+  return ""
+}
+
 Say ""
 Say "  ALFRED - instalacao" "Yellow"
 Say "  Pasta: $Dest"
@@ -110,10 +132,31 @@ if ($major -lt 22) {
 }
 Say "        Node.js $major pronto." "Green"
 
-# Cerebro: sem OmniRoute nem chave da OpenAI, o Alfred usa o Claude Code deste PC.
+# Cerebro gratis: o Gemini do Google (nao gasta o plano do Claude).
+$EnvFile = Join-Path $Dest "alfred.env"
+if (-not (Test-Path $EnvFile)) { Copy-Item (Join-Path $Dest "alfred.env.example") $EnvFile }
+$hasGemini = [bool](Get-AlfredEnv $EnvFile "GEMINI_API_KEY")
+if (-not $hasGemini) {
+  Say ""
+  Say "  Cerebro gratis: o Gemini do Google responde sem gastar o seu plano do Claude." "Yellow"
+  Say "  Precisa de uma chave (gratis): entre com sua conta Google e clique em 'Create API key'."
+  $answer = Read-Host "  Abrir o site da chave agora? (S/N)"
+  if ($answer -match "^[sSyY]") { Start-Process "https://aistudio.google.com/apikey" }
+  $key = (Read-Host "  Cole a chave do Gemini (botao direito do mouse) e aperte Enter, ou so Enter para pular").Trim()
+  if ($key -match '^[A-Za-z0-9_.\-]{20,200}$') {
+    Set-AlfredEnv $EnvFile "GEMINI_API_KEY" $key
+    Set-AlfredEnv $EnvFile "ALFRED_BRAIN" "gemini"
+    $hasGemini = $true
+    Say "        Pronto: o cerebro agora e o Gemini (gratis)." "Green"
+  } elseif ($key) {
+    Say "  Isso nao parece uma chave do Gemini. Rode o instalador de novo e cole a chave inteira." "Red"
+  }
+}
+
+# Sem Gemini: o mais simples e o Claude Code deste PC.
 $claudeExe = Join-Path $env:USERPROFILE ".local\bin\claude.exe"
 $hasClaude = (Get-Command claude -ErrorAction SilentlyContinue) -or (Test-Path $claudeExe)
-if (-not $hasClaude) {
+if (-not $hasClaude -and -not $hasGemini) {
   Say ""
   Say "  O Alfred precisa de um 'cerebro'. O mais simples e o Claude Code (plano Pro ou Max)." "Yellow"
   $answer = Read-Host "  Instalar o Claude Code agora? (S/N)"
@@ -147,6 +190,7 @@ try {
 
 Say ""
 Say "  Pronto! Abrindo o Alfred..." "Yellow"
+Say "  (Se o Alfred ja estava aberto, feche a janela preta antiga primeiro.)"
 Say "  Da proxima vez, clique duas vezes no atalho 'Alfred' da Area de Trabalho."
 Say "  Para a voz de IA, coloque sua chave em OPENAI_API_KEY no arquivo $Dest\alfred.env"
 Say ""

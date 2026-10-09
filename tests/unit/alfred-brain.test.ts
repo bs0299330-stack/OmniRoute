@@ -248,3 +248,74 @@ test("Claude stream parser reports web searches and page reads", async () => {
   });
   assert.equal(feed(ev({ type: "content_block_stop", index: 2 })), null, "a text block stop is not a status");
 });
+
+test("Gemini brain: free key, OpenAI-compatible endpoint, no web, quick thinking", async () => {
+  const { GEMINI_BASE_URL } = await import("../../contrib/alfred/lib.mjs");
+  assert.equal(loadConfig({ ALFRED_BRAIN: "gemini" }).brain, "gemini");
+  assert.equal(loadConfig({ GOOGLE_API_KEY: "g" }).geminiKey, "g", "GOOGLE_API_KEY also works");
+  const call = buildChatCall(loadConfig({ GEMINI_API_KEY: "AIza-test" }), "gemini", history);
+  assert.equal(call.url, `${GEMINI_BASE_URL}/chat/completions`);
+  assert.equal(call.apiKey, "AIza-test");
+  assert.equal(call.body.model, "gemini-flash-latest");
+  assert.equal(call.body.reasoning_effort, "low");
+  assert.equal(call.body.stream, true);
+  assert.equal(call.body.web_search_options, undefined);
+  assert.doesNotMatch(call.body.messages[0].content, /Você tem acesso à internet/);
+  assert.match(call.body.messages[0].content, /não tem acesso à internet/);
+  assert.equal(buildChatCall(loadConfig({ ALFRED_GEMINI_MODEL: "gemini-3.8-flash" }), "gemini", history).body.model, "gemini-3.8-flash");
+});
+
+test("auto brain prefers the free Gemini over OpenAI and Claude when OmniRoute is off", async () => {
+  const { detectBrainInfo } = await import("../../contrib/alfred/brain.mjs");
+  const off = { OMNIROUTE_URL: "http://127.0.0.1:9/v1" }; // nothing listens on the discard port
+  assert.deepEqual(await detectBrainInfo(loadConfig({ ...off, GEMINI_API_KEY: "g", OPENAI_API_KEY: "sk" })), {
+    brain: "gemini",
+    found: true,
+  });
+  assert.equal((await detectBrainInfo(loadConfig({ ...off, OPENAI_API_KEY: "sk" }))).brain, "openai");
+  assert.equal((await detectBrainInfo(loadConfig({ ...off, ALFRED_BRAIN: "claude", GEMINI_API_KEY: "g" }))).brain, "claude");
+});
+
+test("Gemini brain streams text and explains the free-tier limit and a bad key", async () => {
+  const { createServer } = await import("node:http");
+  const { streamReply, BrainError } = await import("../../contrib/alfred/brain.mjs");
+  const seen: { auth?: string; body?: { model: string } }[] = [];
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      seen.push({ auth: req.headers.authorization, body: JSON.parse(raw) });
+      const key = req.headers.authorization;
+      if (key === "Bearer limit") {
+        res.writeHead(429, { "content-type": "application/json" });
+        return res.end('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}');
+      }
+      if (key === "Bearer bad") {
+        res.writeHead(400, { "content-type": "application/json" });
+        return res.end('{"error":{"message":"API key not valid. Please pass a valid API key."}}');
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write('data: {"choices":[{"delta":{"content":"Boa noite, "}}]}\n\n');
+      res.end('data: {"choices":[{"delta":{"content":"senhor."}}]}\n\ndata: [DONE]\n\n');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = server.address() as { port: number };
+  process.env.ALFRED_QUIET = "1";
+  const configFor = (key: string) => loadConfig({ GEMINI_API_KEY: key, ALFRED_GEMINI_URL: `http://127.0.0.1:${port}/` });
+  const collect = async (key: string) => {
+    let text = "";
+    for await (const piece of streamReply(configFor(key), "gemini", [{ role: "user", content: "oi" }])) text += piece;
+    return text;
+  };
+  try {
+    assert.equal(await collect("good"), "Boa noite, senhor.");
+    assert.equal(seen[0].auth, "Bearer good");
+    assert.equal(seen[0].body?.model, "gemini-flash-latest");
+    await assert.rejects(collect("limit"), (err: unknown) => err instanceof BrainError && /limite grátis/.test((err as Error).message));
+    await assert.rejects(collect("bad"), (err: unknown) => err instanceof BrainError && /GEMINI_API_KEY/.test((err as Error).message));
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});

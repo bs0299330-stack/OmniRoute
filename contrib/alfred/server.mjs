@@ -155,7 +155,7 @@ async function handleChat(req, res) {
     brainReady = null; // procura de novo na próxima pergunta (ex.: o Claude Code acabou de ser instalado)
     return sendJson(res, 503, {
       error:
-        "O Alfred está sem cérebro. Instale o Claude Code (irm https://claude.ai/install.ps1 | iex e depois rode claude para entrar), ou coloque OPENAI_API_KEY no alfred.env, ou ligue o OmniRoute. O diagnostico.cmd testa tudo.",
+        "O Alfred está sem cérebro. Grátis: crie uma chave do Gemini em aistudio.google.com/apikey e coloque em GEMINI_API_KEY no alfred.env. Ou instale o Claude Code (irm https://claude.ai/install.ps1 | iex e depois rode claude para entrar), ou coloque OPENAI_API_KEY no alfred.env. O diagnostico.cmd testa tudo.",
     });
   }
   const stream = streamReply(config, current, check.messages, { signal: controller.signal });
@@ -206,7 +206,7 @@ const server = createServer(async (req, res) => {
         ok: true,
         brain: brain && brainFound ? BRAIN_LABELS[brain] : null,
         brainFound,
-        model: brain === "claude" ? "Claude Code" : brain === "openai" ? config.openaiModel : config.model,
+        model: { claude: "Claude Code", openai: config.openaiModel, gemini: config.geminiModel }[brain] ?? config.model,
         auth: !!config.accessToken,
         tts: config.ttsProvider
           ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config) }
@@ -237,13 +237,15 @@ async function announceBrain() {
   const found = await getBrain();
   if (!brainFound) {
     console.warn("   ⚠️  Nenhum cérebro funcionando: o site abre, mas não vai responder.");
-    console.warn("      1) Claude: no PowerShell, irm https://claude.ai/install.ps1 | iex — depois rode `claude` e entre.");
-    console.warn("      2) OpenAI: OPENAI_API_KEY no alfred.env.   3) OmniRoute: deixe-o ligado.");
+    console.warn("      1) Gemini (grátis): chave em aistudio.google.com/apikey → GEMINI_API_KEY no alfred.env.");
+    console.warn("      2) Claude: no PowerShell, irm https://claude.ai/install.ps1 | iex — depois rode `claude` e entre.");
+    console.warn("      3) OpenAI: OPENAI_API_KEY no alfred.env.   4) OmniRoute: deixe-o ligado.");
     console.warn("      Para testar tudo: windows\\diagnostico.cmd (ou node cli.mjs --diagnostico).");
     return;
   }
   const detail = {
     omniroute: `OmniRoute em ${config.baseUrl} (modelo "${config.model}")`,
+    gemini: `Gemini do Google (modelo "${config.geminiModel}", plano grátis, sem internet)`,
     openai: `OpenAI (modelo "${config.openaiModel}")`,
     claude: "Claude, pelo Claude Code instalado neste PC",
   }[found];
@@ -260,7 +262,7 @@ async function announceBrain() {
       } else console.warn(`   ⚠️  OmniRoute respondeu HTTP ${res.status} em ${config.baseUrl}/models.`);
     } catch {
       console.warn(`   ⚠️  OmniRoute não respondeu em ${config.baseUrl} — ele está rodando?`);
-      console.warn("      Sem ele, use ALFRED_BRAIN=claude (Claude Code) ou OPENAI_API_KEY.");
+      console.warn("      Sem ele, use GEMINI_API_KEY (grátis), ALFRED_BRAIN=claude (Claude Code) ou OPENAI_API_KEY.");
     }
   }
 }

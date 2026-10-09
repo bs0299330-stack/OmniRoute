@@ -12,8 +12,9 @@ ele faz, e três jeitos de usar:
 | Dentro do app do Claude | Artifact publicado de `claude/index.html`   | ditado do teclado    | não       |
 
 O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
-(herda provedores, combos e fallback), senão a **OpenAI** (com `OPENAI_API_KEY`), senão o
-**Claude**, pelo Claude Code instalado no PC (`claude -p`, sem ferramentas, só conversa).
+(herda provedores, combos e fallback), senão o **Gemini** do Google (grátis, com
+`GEMINI_API_KEY`), senão a **OpenAI** (com `OPENAI_API_KEY`), senão o **Claude**, pelo Claude
+Code instalado no PC (`claude -p`, só com as ferramentas de ler a web).
 
 - Sem dependências: um servidor Node (`server.mjs`) + uma página HTML.
 - Fala → texto pelo navegador (Web Speech API) e texto → fala por uma **voz de IA da OpenAI**
@@ -100,7 +101,7 @@ No Mac ou no Linux: instale o Node 22, baixe com o comando `git` acima e rode
 ```bash
 node contrib/alfred/cli.mjs                  # conversa por texto (+ voz, se configurada)
 node contrib/alfred/cli.mjs --conversa       # mãos livres: ouve, responde, ouve de novo
-node contrib/alfred/cli.mjs --cerebro=claude # força o cérebro (claude, openai, omniroute)
+node contrib/alfred/cli.mjs --cerebro=claude # força o cérebro (gemini, claude, openai, omniroute)
 node contrib/alfred/cli.mjs --sem-voz
 ```
 
@@ -115,6 +116,26 @@ e dois Ctrl+C saem.
   (`gpt-4o-mini-transcribe`), ou de `ALFRED_STT_MODEL` com um modelo de transcrição do OmniRoute. Ele
   para de gravar sozinho depois de ~1,6 s de silêncio.
 
+## Cérebro grátis: Gemini
+
+Para o Alfred não gastar o seu plano do Claude, use o **Gemini** do Google, que tem plano grátis:
+
+1. Entre em <https://aistudio.google.com/apikey> com a sua conta Google e clique em
+   **Create API key** (Criar chave de API). Copie a chave.
+2. Rode o instalador de novo (o comando do PowerShell acima). Ele pergunta pela chave: cole com o
+   botão direito do mouse e aperte Enter. Ele grava `GEMINI_API_KEY` e `ALFRED_BRAIN=gemini` no
+   `alfred.env` e reabre o Alfred.
+
+Sem o instalador: abra `Documentos\Alfred\alfred.env` no Bloco de Notas, troque a linha
+`ALFRED_BRAIN=auto` por `ALFRED_BRAIN=gemini`, coloque a chave em `GEMINI_API_KEY=` e reabra o
+Alfred.
+
+O modelo padrão é `gemini-flash-latest`, que sempre aponta para o Flash mais novo
+(`ALFRED_GEMINI_MODEL` troca). **Limites:** o plano grátis tem um limite de perguntas por minuto e
+por dia. Quando passa, o Alfred avisa e volta a funcionar sozinho depois. No plano grátis o Gemini
+**não pesquisa na internet**: para cotações, notícias ou clima de agora, o Alfred diz que não
+consegue ver. Para voltar ao Claude, troque para `ALFRED_BRAIN=claude`.
+
 ## Internet
 
 O Alfred pesquisa e lê páginas na internet quando a pergunta envolve algo atual (notícias, preços,
@@ -127,6 +148,7 @@ lista de links aparece no histórico, clicável, mas não é lida em voz alta.
 | Claude    | Ferramentas **WebSearch** e **WebFetch** do Claude Code, as únicas liberadas (só leitura)        |
 | OpenAI    | Modelo de pesquisa `gpt-5-search-api` (`ALFRED_OPENAI_SEARCH_MODEL`), que pesquisa a cada pergunta |
 | OmniRoute | Escolha um modelo que pesquisa sozinho, por exemplo `ALFRED_MODEL=perplexity/sonar`             |
+| Gemini    | Não pesquisa: a pesquisa do Google não faz parte do plano grátis                                |
 
 `ALFRED_WEB=full` (padrão) pesquisa e lê páginas; `search` só pesquisa; `off` desliga a internet.
 **Cuidados:** cada pesquisa gasta um pouco mais do seu plano ou crédito, e respostas com pesquisa
@@ -157,7 +179,8 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | "Não é possível acessar esse site" em `localhost`    | O servidor não está rodando **nesse aparelho**. `localhost` é sempre o próprio aparelho: rode o passo 3 no mesmo PC e mantenha o terminal aberto. |
 | Abre no PC mas não no celular                        | Use `node contrib/alfred/server.mjs --tunel` e abra o link no celular. Veja "Falar com o Alfred pelo celular".                                    |
 | `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
-| Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
+| Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `GEMINI_API_KEY` (grátis), `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
+| "O Gemini atingiu o limite grátis"                   | Passou do limite do plano grátis. Espere um minuto, ou até o dia seguinte se foi o limite do dia.                                                  |
 | "O Claude Code não está logado"                      | Rode `claude` uma vez no terminal e entre na sua conta.                                                                                            |
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
@@ -265,7 +288,9 @@ ele envia sozinho.
 
 | Variável               | Padrão                       | Descrição                                       |
 | ---------------------- | ---------------------------- | ----------------------------------------------- |
-| `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `openai` ou `claude` (Claude Code)  |
+| `ALFRED_BRAIN`         | `auto`                       | `omniroute`, `gemini`, `openai` ou `claude` (Claude Code) |
+| `GEMINI_API_KEY`       | —                            | Chave grátis do Gemini (aistudio.google.com/apikey) |
+| `ALFRED_GEMINI_MODEL`  | `gemini-flash-latest`        | Modelo quando o cérebro é o Gemini (sem internet) |
 | `ALFRED_CLAUDE_MODEL`  | —                            | Modelo do Claude Code (`sonnet`, `opus`…)        |
 | `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI (sem internet) |
 | `ALFRED_WEB`           | `full`                       | Internet: `full`, `search` ou `off`             |
@@ -290,7 +315,7 @@ ele envia sozinho.
 ## Arquitetura
 
 ```
-Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | OpenAI | claude -p
+Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Gemini | OpenAI | claude -p
           ▲                                       │
           ├────────── SSE {text} ◀────────────────┘
           └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ OpenAI ou OmniRoute /audio/speech (opcional)
@@ -298,7 +323,7 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 
 - `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE, comando do Claude
   Code, argumentos do sox); testadas em `tests/unit/alfred-lib.test.ts` e `alfred-brain.test.ts`.
-- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, OpenAI ou Claude Code, em streaming.
+- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Gemini, OpenAI ou Claude Code, em streaming.
   O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
 - `public/hud.css` + `public/hud.mjs` — o visual e o globo de ~700 partículas: gira devagar em

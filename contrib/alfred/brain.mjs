@@ -1,4 +1,4 @@
-// Alfred — the "brain": streams a reply from OmniRoute, OpenAI or Claude Code.
+// Alfred — the "brain": streams a reply from OmniRoute, Gemini, OpenAI or Claude Code.
 // Shared by server.mjs (the web page) and cli.mjs (the terminal).
 
 import { spawn } from "node:child_process";
@@ -12,7 +12,7 @@ import {
   createClaudeStreamParser,
 } from "./lib.mjs";
 
-export const BRAIN_LABELS = { omniroute: "OmniRoute", openai: "OpenAI", claude: "Claude" };
+export const BRAIN_LABELS = { omniroute: "OmniRoute", gemini: "Gemini", openai: "OpenAI", claude: "Claude" };
 export const FIRST_TOKEN_TIMEOUT_MS = 90_000;
 
 // Technical logs go to stderr for the server; the terminal Alfred sets ALFRED_QUIET=1.
@@ -86,13 +86,14 @@ export function findClaude(config) {
 }
 
 /**
- * Resolves "auto": OmniRoute if it answers, else OpenAI with a key, else Claude Code if
- * installed. `found` is false when nothing is available (the brain then falls back to OmniRoute
+ * Resolves "auto": OmniRoute if it answers, else Gemini or OpenAI with a key (Gemini first: its
+ * free tier costs nothing), else Claude Code if installed. `found` is false when nothing is available (the brain then falls back to OmniRoute
  * and every question fails with a hint).
  */
 export async function detectBrainInfo(config) {
   if (config.brain !== "auto") return { brain: config.brain, found: true };
   if (await omnirouteAnswers(config)) return { brain: "omniroute", found: true };
+  if (config.geminiKey) return { brain: "gemini", found: true };
   if (config.openaiKey) return { brain: "openai", found: true };
   if (await findClaude(config)) return { brain: "claude", found: true };
   return { brain: "omniroute", found: false };
@@ -101,6 +102,12 @@ export async function detectBrainInfo(config) {
 export async function detectBrain(config) {
   return (await detectBrainInfo(config)).brain;
 }
+
+const KEY_REFUSED = {
+  omniroute: "O OmniRoute recusou a chave (OMNIROUTE_API_KEY).",
+  gemini: "O Google recusou a chave do Gemini (GEMINI_API_KEY). Confira se copiou a chave inteira.",
+  openai: "A OpenAI recusou a chave (OPENAI_API_KEY).",
+};
 
 async function* streamChatCompletions(config, brain, messages, signal) {
   const call = buildChatCall(config, brain, messages);
@@ -119,19 +126,24 @@ async function* streamChatCompletions(config, brain, messages, signal) {
     if (signal?.aborted) return;
     log(`[alfred] ${brain} unreachable:`, err?.message);
     throw new BrainError(
-      brain === "openai"
-        ? "Não consegui falar com a OpenAI. Confira a internet."
-        : "Não consegui falar com o OmniRoute. Ele está rodando? Rode o diagnóstico para ver outras opções."
+      brain === "omniroute"
+        ? "Não consegui falar com o OmniRoute. Ele está rodando? Rode o diagnóstico para ver outras opções."
+        : `Não consegui falar com ${brain === "openai" ? "a OpenAI" : "o Gemini"}. Confira a internet.`
     );
   }
   if (!res.ok || !res.body) {
-    log(`[alfred] ${brain} HTTP`, res.status, await res.text().catch(() => ""));
-    if (res.status === 401 || res.status === 403) {
+    const body = await res.text().catch(() => "");
+    log(`[alfred] ${brain} HTTP`, res.status, body);
+    if (res.status === 401 || res.status === 403 || (brain === "gemini" && res.status === 400 && /api.?key/i.test(body))) {
+      throw new BrainError(KEY_REFUSED[brain]);
+    }
+    if (res.status === 429) {
       throw new BrainError(
-        brain === "openai" ? "A OpenAI recusou a chave (OPENAI_API_KEY)." : "O OmniRoute recusou a chave (OMNIROUTE_API_KEY)."
+        brain === "gemini"
+          ? "O Gemini atingiu o limite grátis por agora. Espere um minuto (ou até amanhã, se foi o limite do dia)."
+          : `${BRAIN_LABELS[brain]}: limite de uso ou sem crédito (HTTP 429).`
       );
     }
-    if (res.status === 429) throw new BrainError(`${BRAIN_LABELS[brain]}: limite de uso ou sem crédito (HTTP 429).`);
     throw new BrainError(`${BRAIN_LABELS[brain]} respondeu com erro (${res.status}).`);
   }
   const parse = createSseParser();
@@ -283,6 +295,26 @@ export async function checkBrains(config, { deep = true } = {}) {
         };
   } catch {
     result.omniroute = { ok: false, detail: `não está rodando em ${config.baseUrl}`, fix: "Opcional: ligue o OmniRoute se quiser usá-lo." };
+  }
+
+  if (!config.geminiKey) {
+    result.gemini = {
+      ok: false,
+      detail: "sem chave",
+      fix: "Grátis: crie uma chave em aistudio.google.com/apikey e coloque em GEMINI_API_KEY no alfred.env.",
+    };
+  } else {
+    try {
+      const res = await fetch(`${config.geminiUrl}/models`, {
+        headers: { authorization: `Bearer ${config.geminiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      result.gemini = res.ok
+        ? { ok: true, detail: `chave válida (modelo "${config.geminiModel}")` }
+        : { ok: false, detail: `o Google recusou a chave (HTTP ${res.status})`, fix: "Confira a GEMINI_API_KEY no alfred.env." };
+    } catch {
+      result.gemini = { ok: false, detail: "sem resposta do Google", fix: "Confira a internet." };
+    }
   }
 
   if (!config.openaiKey) {
