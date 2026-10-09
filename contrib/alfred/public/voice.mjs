@@ -26,6 +26,31 @@ export const CHUNKING = Object.freeze({
 
 export const VOICE_TEST_LINE = "Pois não, senhor. Alfred às suas ordens. Em que posso ser útil hoje?";
 
+/**
+ * Alfred's fixed lines. `file` is a recording served from public/frases/ (voice "Fabio Oliveira
+ * Deep Portuguese", made with ElevenLabs); a line without one is spoken by the normal voice. Drop
+ * an mp3 with the same name in public/frases/ and set `file` to give a line its recording.
+ */
+export const PHRASES = Object.freeze({
+  bomDia: { text: "Bom dia, senhor. Em que posso ser útil?", file: "frases/bom-dia.mp3" },
+  boaTarde: { text: "Boa tarde, senhor. Em que posso ser útil?", file: "frases/boa-tarde.mp3" },
+  boaNoite: { text: "Boa noite, senhor. Em que posso ser útil?", file: "frases/boa-noite.mp3" },
+  momento: { text: "Um momento, senhor. Vou verificar.", file: "frases/momento.mp3" },
+  chamada: { text: "Pois não, senhor?", file: "" },
+  despedida: { text: "Às suas ordens, senhor.", file: "" },
+  pausa: { text: "Estarei por aqui, senhor. É só chamar.", file: "" },
+  erro: { text: "Perdão, senhor. Não consegui responder agora.", file: "" },
+  inicio: { text: "Alfred a postos, senhor. É só me chamar.", file: "" },
+});
+
+/** The greeting for the time of day: "bomDia" (5h–11h), "boaTarde" (12h–17h) or "boaNoite". */
+export function greetingFor(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return "bomDia";
+  if (hour >= 12 && hour < 18) return "boaTarde";
+  return "boaNoite";
+}
+
 // "Sr." / "Dr." / "etc." must not end a sentence.
 const ABBREVIATION_END = /(?:^|[\s(])(?:sr|sra|srta|dr|dra|prof|profa|av|etc|ex|obs|pág|pag|vs|aprox|tel|n[º°o])\.$/i;
 const SENTENCE_END = /[.!?…]+["'”’)\]]*(?=\s)|\n+/g;
@@ -201,6 +226,9 @@ export function createSpeaker({
   let chain = Promise.resolve();
   let currentAudio = null;
   let watchdog = null;
+  // Recorded clips (playClip) queued or playing: browser speech queued after one waits for it.
+  let clipsAhead = 0;
+  let clipTail = Promise.resolve();
   const changeListeners = new Set();
   const voiceListeners = new Set();
 
@@ -260,11 +288,72 @@ export function createSpeaker({
   function sayBrowser(text, gen) {
     if (!synth) return;
     setPending(1);
-    try {
-      utter(text, () => gen === generation && setPending(-1));
-    } catch {
-      setPending(-1);
-    }
+    const speakNow = () => {
+      if (gen !== generation) return; // cancelled while waiting for a clip
+      try {
+        utter(text, () => gen === generation && setPending(-1));
+      } catch {
+        setPending(-1);
+      }
+    };
+    if (clipsAhead > 0) clipTail.then(speakNow);
+    else speakNow();
+  }
+
+  // Resolves once the browser voice has nothing queued (or after `maxMs`, or on cancel).
+  function synthIdle(gen, maxMs = 60_000) {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const check = () => {
+        const busy = synth && (synth.speaking || synth.pending);
+        if (!busy || gen !== generation || Date.now() - started > maxMs) return resolve();
+        setTimeout(check, 100);
+      };
+      check();
+    });
+  }
+
+  // Plays one audio URL; resolves true when it ends (or is stopped), false when it cannot play.
+  function playUrl(url, maxMs = 30_000) {
+    return new Promise((resolve) => {
+      let player;
+      try {
+        player = new Audio(url);
+      } catch {
+        return resolve(false);
+      }
+      let timer = null;
+      const finish = (ok) => {
+        clearTimeout(timer);
+        if (currentAudio === player) currentAudio = null;
+        resolve(ok);
+      };
+      currentAudio = player;
+      try {
+        onAudio(player);
+      } catch {}
+      player.onended = () => finish(true);
+      player.onpause = () => finish(true); // cancel() pauses it
+      player.onerror = () => finish(false);
+      timer = setTimeout(() => finish(true), maxMs);
+      player.play().catch(() => finish(false));
+    });
+  }
+
+  // Speaks with the browser voice and resolves at the end, with a time cap: some browsers skip onend.
+  function utterAndWait(text) {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, 4000 + text.length * 120);
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      try {
+        utter(text, done);
+      } catch {
+        done();
+      }
+    });
   }
 
   function sayNeural(text, gen) {
@@ -321,6 +410,34 @@ export function createSpeaker({
       const neural = settings().engine === "neural" && !!fetchNeural;
       return createChunker(neural ? CHUNKING.neural : CHUNKING.browser);
     },
+    /**
+     * Queue a recorded clip (e.g. a fixed phrase). It plays after everything queued before it and
+     * before anything queued after it; if the file cannot play, `fallbackText` is spoken instead.
+     */
+    playClip(url, fallbackText = "") {
+      const gen = generation;
+      const prev = chain;
+      setPending(1);
+      clipsAhead++;
+      const done = (async () => {
+        await prev; // earlier AI-voice chunks
+        await synthIdle(gen); // earlier browser-voice chunks
+        if (gen !== generation) return;
+        const played = await playUrl(url);
+        const text = cleanForSpeech(fallbackText);
+        if (!played && text && gen === generation) {
+          if (synth) await utterAndWait(text);
+        }
+      })()
+        .catch(() => {})
+        .finally(() => {
+          if (gen !== generation) return;
+          clipsAhead--;
+          setPending(-1);
+        });
+      chain = done;
+      clipTail = done;
+    },
     /** Speak a whole text, chunked. */
     sayAll(text) {
       const chunker = this.chunker();
@@ -337,6 +454,8 @@ export function createSpeaker({
         currentAudio = null;
       }
       chain = Promise.resolve();
+      clipsAhead = 0;
+      clipTail = Promise.resolve();
       setPending(-pending);
     },
     get speaking() {

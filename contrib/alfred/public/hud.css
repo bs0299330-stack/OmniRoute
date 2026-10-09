@@ -468,6 +468,63 @@ input[type="range"] {
 }
 
 /* ---------- narrow screens ---------- */
+/* ---------- local page: voice only ----------
+   Just the globe over the city. The microphone is always on; problems show as one quiet line at
+   the bottom; the menu button stays invisible until reached with Tab (or opened with the M key). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+body.voice-only .stage {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 16px;
+}
+body.voice-only #orb {
+  width: min(62vh, 100%, 560px);
+  cursor: pointer;
+}
+body.voice-only .notice {
+  position: fixed;
+  z-index: 2;
+  left: 16px;
+  right: 16px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  max-width: 34em;
+  margin: 0 auto;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(13, 13, 16, 0.92);
+  color: var(--danger);
+  font-size: 0.9rem;
+  text-align: center;
+}
+body.voice-only .menu-key {
+  position: fixed;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+body.voice-only .menu-key:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 @media (max-width: 640px) {
   #orb {
     width: min(68vw, 300px);

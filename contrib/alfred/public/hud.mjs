@@ -283,13 +283,14 @@ export function drawSkyline(canvas, seed = 1939) {
 }
 
 /** The menu drawer: the ≡ button opens it; the scrim, the close button and Esc close it. */
-export function setupDrawer({ button, drawer, scrim }) {
+export function setupDrawer({ button, drawer, scrim, restoreFocus = true }) {
   const open = (on) => {
     drawer.hidden = !on;
     scrim.hidden = !on;
     button.setAttribute("aria-expanded", String(on));
     if (on) drawer.querySelector("[data-close]")?.focus();
-    else button.focus();
+    else if (restoreFocus) button.focus();
+    else document.activeElement?.blur?.(); // a hidden menu button stays hidden
   };
   button.addEventListener("click", () => open(drawer.hidden));
   scrim.addEventListener("click", () => open(false));

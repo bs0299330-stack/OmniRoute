@@ -215,45 +215,53 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
-### Conversar por voz
+### Só voz: o globo e nada mais
 
-Use o **Edge** ou o **Chrome** (o `iniciar-alfred.cmd` já abre no Edge). Brave, Opera e Firefox
-não fazem reconhecimento de voz.
+A página mostra **só o globo** (e a cidade ao fundo). Não há texto, campo de digitar nem botão de
+microfone: tudo é por voz. Use o **Edge** ou o **Chrome** (Brave, Opera e Firefox não fazem
+reconhecimento de voz).
 
-| Ação                  | Como                                                                                         |
-| --------------------- | -------------------------------------------------------------------------------------------- |
-| **Conversa por voz**  | Clique no 🎙 uma vez e fale. Ele responde e volta a ouvir sozinho, sem digitar nada          |
-| Encerrar a conversa   | Diga "tchau", "pode parar" ou "obrigado, Alfred", ou clique no 🎙 de novo                    |
-| Chamar pelo nome      | Ligue **Chamar por "Alfred"** e diga "Alfred, que horas são?". A conversa continua por voz   |
-| Uma frase só          | Segure **Espaço**, fale e solte                                                              |
-| Interromper a fala    | **Esc**                                                                                      |
-| Digitar               | Campo de texto + Enviar (também funciona no meio da conversa por voz)                        |
+| Ação                 | Como                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| **Chamar**           | Diga **"Alfred, …"** (por exemplo "Alfred, que horas são?") ou bata **duas palmas**    |
+| Continuar            | Depois de chamar, só fale: a conversa segue sem repetir o nome                         |
+| Encerrar             | Diga "tchau", "pode parar" ou "obrigado, Alfred"                                        |
+| Interromper a fala   | **Esc**                                                                                 |
+| Sem falar o nome     | Clique no globo (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
+| Opções e histórico   | Tecla **M** abre e fecha o menu (voz, palmas, música, histórico com os links das fontes) |
 
-Com a conversa ligada, o 🎙 fica aceso e pulsa quando é a sua vez. Um bipe avisa quando ele volta a
-ouvir depois de responder. Enquanto o Alfred fala, o microfone fica fechado para ele não ouvir a
-própria voz. Depois de cerca de 1 minuto em silêncio, a conversa pausa sozinha. Se o microfone
-estiver bloqueado, sem permissão ou sem internet para o reconhecimento, a tela diz qual é o
-problema e o que fazer.
+- **O microfone fica sempre ligado**, esperando o nome "Alfred" ou duas palmas. Ele não responde à
+  TV nem a quem conversa perto do PC, só a quem chama pelo nome. Depois de chamado, ele responde,
+  ouve de novo e continua até você dizer "tchau" ou ficar uns segundos em silêncio. Aí ele diz
+  "Estarei por aqui, senhor" e volta a esperar o nome.
+- Enquanto o Alfred fala, o microfone fica fechado para ele não ouvir a própria voz. Um bipe avisa
+  quando é a sua vez.
+- **O globo mostra o estado:** cinza esperando, amarelo ouvindo ou falando, pulsando ao pensar.
+- **Avisos só quando algo dá errado:** se o microfone for bloqueado ou o servidor cair, uma linha
+  discreta aparece embaixo e o Alfred fala o problema. Se o microfone parar de responder, ele tenta
+  de novo sozinho a cada 30 segundos.
+- **Janela própria:** o `iniciar-alfred.cmd` abre o Alfred no Edge em uma janela só dele, sem abas
+  nem barra de endereço, e já com o som liberado (perfil separado em
+  `%LOCALAPPDATA%\Alfred\Edge`). Na primeira vez, o Edge pede o microfone: clique em **Permitir**.
+  Aberto em outro navegador, ele pode pedir **um clique no globo** para ligar o som.
 
 ### Chamar com duas palmas
 
-No menu ≡, ligue **Ativar com duas palmas**. O navegador pede o microfone na primeira vez. Com o
-Alfred parado, bata **duas palmas seguidas**: ele responde "Pois não, senhor?" e começa a conversa
-por voz.
+As palmas já vêm ligadas (dá para desligar no menu, tecla **M**). Com o Alfred parado, bata **duas
+palmas seguidas**: toca a música de abertura e ele cumprimenta conforme a hora ("Bom dia / Boa
+tarde / Boa noite, senhor. Em que posso ser útil?"). Depois é só falar.
 
 - O detector roda no próprio PC, em `public/clap.mjs`, e nada do microfone é enviado. Ele só aceita
   duas batidas curtas e fortes, com 0,15 a 0,8 s entre elas e silêncio antes e depois. Fala, música,
   três palmas seguidas e digitação são ignoradas. Enquanto o Alfred ouve, pensa ou fala, as palmas
   ficam desligadas.
-- **Música ao chamar:** antes do "Pois não", toca o **Tema do Alfred**, uma abertura original de
-  cerca de 10 s, orquestral e sombria, composta na hora pelo navegador (`playGothamTheme` em `public/hud.mjs`). Em
-  **Escolher música…** você pode usar um arquivo seu (MP3 etc.), tocado por 8, 15, 30 s ou inteiro.
-  O arquivo fica guardado só neste navegador. O 🎙 ou Esc cortam a música.
+- **Música ao chamar:** antes do cumprimento, toca o **Tema do Alfred**, uma abertura original de
+  cerca de 10 s, orquestral e sombria, composta na hora pelo navegador (`playGothamTheme` em `public/hud.mjs`). No
+  menu, **Escolher música…** usa um arquivo seu (MP3 etc.), tocado por 8, 15, 30 s ou inteiro. O
+  arquivo fica guardado só neste navegador. Um clique no globo ou Esc cortam a música.
 - **Sensibilidade:** use *Baixa* em ambiente barulhento e *Alta* se as palmas forem fracas ou
   estiverem longe do microfone.
-- A página precisa estar aberta, mas pode ficar atrás de outras janelas. Depois de abrir, o
-  navegador exige **um clique na página** para liberar o som, e o Alfred avisa quando falta isso.
-  Para já ligar tudo junto com o PC, rode `ligar-com-o-windows.cmd` e responda **S** para abrir o
+- Para já ligar tudo junto com o PC, rode `ligar-com-o-windows.cmd` e responda **S** para abrir o
   Alfred no Edge.
 
 No **terminal**, o microfone precisa do `sox` e de `OPENAI_API_KEY` (para transcrever). Sem chave,
@@ -288,6 +296,28 @@ depois vozes masculinas.
 A voz é um personagem original no estilo de um mordomo. Ela não imita a voz de nenhum ator ou
 dublador real.
 
+### Frases gravadas (voz do Fabio)
+
+As frases fixas do Alfred tocam gravadas, na voz **"Fabio Oliveira Deep Portuguese"** da biblioteca
+de vozes do [ElevenLabs](https://elevenlabs.io), sem chave nenhuma no PC: os áudios ficam em
+`public/frases/`. O resto (as respostas da IA) sai na voz configurada acima.
+
+| Frase                                         | Quando                         | Arquivo               |
+| --------------------------------------------- | ------------------------------ | --------------------- |
+| "Bom dia / Boa tarde / Boa noite, senhor. Em que posso ser útil?" | duas palmas     | `bom-dia.mp3`, `boa-tarde.mp3`, `boa-noite.mp3` |
+| "Um momento, senhor. Vou verificar."           | quando ele começa a pesquisar  | `momento.mp3`         |
+| "Pois não, senhor?"                            | chamado só pelo nome           | (voz normal)          |
+| "Às suas ordens, senhor."                      | "tchau"                        | (voz normal)          |
+| "Estarei por aqui, senhor. É só chamar."       | fim da conversa por silêncio   | (voz normal)          |
+| "Perdão, senhor. Não consegui responder agora." | erro                          | (voz normal)          |
+| "Alfred a postos, senhor. É só me chamar."     | ao abrir                       | (voz normal)          |
+
+Para gravar as outras: gere a frase no ElevenLabs, salve o MP3 em `public/frases/` com um nome
+simples (letras minúsculas, números e hífen) e coloque esse caminho no `file` da frase em `PHRASES`
+(`public/voice.mjs`). Em **Frases gravadas** (menu, tecla M) você desliga as gravações e volta tudo
+para a voz normal. Os áudios foram gerados no plano grátis do ElevenLabs: uso pessoal, não
+comercial, com o crédito ao ElevenLabs acima.
+
 ## Falar com o Alfred pelo celular (com microfone)
 
 O navegador do celular só libera o microfone em **https**. O Alfred cria esse link sozinho:
@@ -302,7 +332,7 @@ O navegador do celular só libera o microfone em **https**. O Alfred cria esse l
 
 3. Ele mostra um link `https://….trycloudflare.com/#token=…`. Abra esse link no celular (Chrome
    no Android). A senha vai junto no link, a página guarda e tira da barra de endereço. Toque no
-   🎙 e fale.
+   globo (libera o som e o microfone) e fale, ou diga "Alfred, …".
 
 Enquanto o link estiver ativo, as rotas `/api/*` exigem a senha. Se `ALFRED_TOKEN` não estiver
 definido, ele gera uma senha nova a cada execução. **Não compartilhe o link**, porque quem tiver o

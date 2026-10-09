@@ -37,7 +37,9 @@ exit /b 1
 :node_ok
 if not exist "alfred.env" copy "alfred.env.example" "alfred.env" >nul
 rem Abre no Edge (vem com o Windows): ele reconhece voz em portugues e tem vozes naturais.
-start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start msedge http://localhost:20140/"
+rem Janela propria (sem abas nem barra de endereco, so o globo), com perfil proprio do Alfred
+rem para o som e o microfone ja ligarem sem precisar de clique.
+start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start "" msedge --app=http://localhost:20140/ --user-data-dir="%LOCALAPPDATA%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized"
 "%NODE%" server.mjs %*
 echo.
 pause

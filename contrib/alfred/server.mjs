@@ -79,10 +79,22 @@ const STATIC_FILES = {
   "/hud.css": ["hud.css", "text/css; charset=utf-8"],
 };
 
-async function serveStatic(res, [file, type]) {
+async function serveStatic(res, [file, type], cache = "no-store") {
   const body = await readFile(join(HERE, "public", file));
-  res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
+  res.writeHead(200, { "content-type": type, "cache-control": cache });
   res.end(body);
+}
+
+// Alfred's recorded fixed phrases (public/frases/*.mp3). Only plain names, so a request can
+// never reach a file outside that folder.
+const PHRASE_FILE = /^\/frases\/([a-z0-9-]{1,40})\.mp3$/;
+
+async function servePhrase(res, name) {
+  try {
+    return await serveStatic(res, [`frases/${name}.mp3`, "audio/mpeg"], "public, max-age=86400");
+  } catch {
+    return sendJson(res, 404, { error: "Frase não encontrada." });
+  }
 }
 
 async function handleTts(req, res) {
@@ -200,6 +212,8 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && STATIC_FILES[url.pathname]) {
       return await serveStatic(res, STATIC_FILES[url.pathname]);
     }
+    const phrase = req.method === "GET" ? PHRASE_FILE.exec(url.pathname) : null;
+    if (phrase) return await servePhrase(res, phrase[1]);
     if (req.method === "GET" && url.pathname === "/api/health") {
       await getBrain();
       return sendJson(res, 200, {
