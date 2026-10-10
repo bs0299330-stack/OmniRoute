@@ -24,23 +24,22 @@ export const CHUNKING = Object.freeze({
   neural: { firstAtComma: false, firstMin: 28, minLater: 160, max: 400 },
 });
 
-export const VOICE_TEST_LINE = "Pois não, senhor. Alfred às suas ordens. Em que posso ser útil hoje?";
+export const VOICE_TEST_LINE = "Pois não, mestre. Alfred às suas ordens. Em que posso ser útil hoje?";
 
 /**
- * Alfred's fixed lines. `file` is a recording served from public/frases/ (voice "Fabio Oliveira
- * Deep Portuguese", made with ElevenLabs); a line without one is spoken by the normal voice. Drop
- * an mp3 with the same name in public/frases/ and set `file` to give a line its recording.
+ * Alfred's fixed lines. A line without `file` is spoken by the normal voice. To give a line a
+ * recording, drop an mp3 in public/frases/ (served as frases/<name>.mp3) and set `file`.
  */
 export const PHRASES = Object.freeze({
-  bomDia: { text: "Bom dia, senhor. Em que posso ser útil?", file: "frases/bom-dia.mp3" },
-  boaTarde: { text: "Boa tarde, senhor. Em que posso ser útil?", file: "frases/boa-tarde.mp3" },
-  boaNoite: { text: "Boa noite, senhor. Em que posso ser útil?", file: "frases/boa-noite.mp3" },
-  momento: { text: "Um momento, senhor. Vou verificar.", file: "frases/momento.mp3" },
-  chamada: { text: "Pois não, senhor?", file: "" },
-  despedida: { text: "Às suas ordens, senhor.", file: "" },
-  pausa: { text: "Estarei por aqui, senhor. É só chamar.", file: "" },
-  erro: { text: "Perdão, senhor. Não consegui responder agora.", file: "" },
-  inicio: { text: "Alfred a postos, senhor. É só me chamar.", file: "" },
+  bomDia: { text: "Bom dia, mestre. Em que posso ser útil?", file: "" },
+  boaTarde: { text: "Boa tarde, mestre. Em que posso ser útil?", file: "" },
+  boaNoite: { text: "Boa noite, mestre. Em que posso ser útil?", file: "" },
+  momento: { text: "Um momento, mestre. Vou verificar.", file: "" },
+  chamada: { text: "Pois não, mestre?", file: "" },
+  despedida: { text: "Às suas ordens, mestre.", file: "" },
+  pausa: { text: "Estarei por aqui, mestre. É só chamar.", file: "" },
+  erro: { text: "Perdão, mestre. Não consegui responder agora.", file: "" },
+  inicio: { text: "Alfred a postos, mestre. É só me chamar.", file: "" },
 });
 
 /** The greeting for the time of day: "bomDia" (5h–11h), "boaTarde" (12h–17h) or "boaNoite". */

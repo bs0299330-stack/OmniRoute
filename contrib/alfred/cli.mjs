@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { BRAIN_LABELS, BrainError, checkBrains, detectBrainInfo, keepLocalWarm, streamReply } from "./brain.mjs";
+import { createCare } from "./care.mjs";
 import {
   LINUX_PLAYERS,
   OPENAI_STT_URL,
@@ -251,6 +252,7 @@ let brain = "omniroute";
 let brainFound = true;
 let messages = [];
 let controller = null;
+const care = createCare(); // "cuidar de você": rest late at night, water on hot days
 let conversation = false;
 
 async function ask(text) {
@@ -267,7 +269,7 @@ async function ask(text) {
   const thinking = startThinking();
   let full = "";
   try {
-    for await (const delta of streamReply(config, brain, messages, { signal: controller.signal })) {
+    for await (const delta of streamReply(config, brain, messages, { signal: controller.signal, care })) {
       if (typeof delta !== "string") {
         thinking.label(statusLabel(delta.status)); // 🔎 pesquisando na internet…
         continue;
@@ -361,7 +363,7 @@ async function conversationLoop() {
     }
     silent = 0;
     if (isStopPhrase(text)) {
-      voice.say("Às suas ordens, senhor.");
+      voice.say("Às suas ordens, mestre.");
       await voice.idle();
       break;
     }
@@ -459,7 +461,7 @@ async function main() {
 
   async function finish() {
     voice.cancel();
-    console.log(dim("\n  Até logo, senhor.\n"));
+    console.log(dim("\n  Até logo, mestre.\n"));
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     process.exit(0);
   }

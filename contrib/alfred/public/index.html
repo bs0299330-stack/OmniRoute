@@ -463,7 +463,7 @@
                 setPhase("thinking", msg.status); // “Pesquisando: …”, “Lendo g1.globo.com”
                 if (!full && !saidMoment) {
                   saidMoment = true;
-                  phrase("momento"); // “Um momento, senhor. Vou verificar.”
+                  phrase("momento"); // “Um momento, mestre. Vou verificar.”
                 }
                 continue;
               }
@@ -542,7 +542,7 @@
         voiceSession = false;
         stopListening();
         if (warn) setStatus(message, true);
-        if (was && silent) phrase("pausa"); // “Estarei por aqui, senhor. É só chamar.”
+        if (was && silent) phrase("pausa"); // “Estarei por aqui, mestre. É só chamar.”
         scheduleListening(); // volta a esperar “Alfred”, se essa opção estiver ligada
       }
 
@@ -614,7 +614,7 @@
             ask(heard.command, { viaVoice: true });
           } else {
             cueNext = true; // bipe quando ele terminar de falar e for a sua vez
-            if (!phrase("chamada")) scheduleListening(); // “Pois não, senhor?”
+            if (!phrase("chamada")) scheduleListening(); // “Pois não, mestre?”
           }
         };
         r.onerror = (e) => {
@@ -644,7 +644,7 @@
               silentRounds = 0;
               if (voiceSession && isStopPhrase(text)) {
                 endVoiceSession();
-                phrase("despedida"); // “Às suas ordens, senhor.”
+                phrase("despedida"); // “Às suas ordens, mestre.”
                 return;
               }
               earcons.done();
@@ -759,7 +759,7 @@
         silentRounds = 0;
         quickEnds = 0;
         cueNext = true;
-        // “Bom dia / Boa tarde / Boa noite, senhor. Em que posso ser útil?” — ao terminar, ele ouve
+        // “Bom dia / Boa tarde / Boa noite, mestre. Em que posso ser útil?” — ao terminar, ele ouve
         if (!phrase(greetingFor())) listen("command");
         settle();
       }
@@ -808,7 +808,7 @@
       });
       // ---------- Música de abertura ----------
       // O arquivo escolhido fica guardado no navegador deste PC (IndexedDB) e toca antes do
-      // “Pois não, senhor?” quando você bate duas palmas.
+      // “Pois não, mestre?” quando você bate duas palmas.
       let intro = null; // { audio, timer, done }
       let introTitle = "";
 
@@ -965,7 +965,7 @@
         .then((h) => {
           $("chipBrain").textContent = h.brain || "nenhum";
           if (h.brainFound === false) {
-            if ($("speak").checked) speaker.sayAll("Estou sem cérebro para responder, senhor.");
+            if ($("speak").checked) speaker.sayAll("Estou sem cérebro para responder, mestre.");
             setStatus("Sem cérebro: rode o instalador de novo e escolha a opção 1 (IA no seu PC, grátis e sem chave), ou coloque uma chave grátis do Gemini (aistudio.google.com/apikey) em GEMINI_API_KEY no alfred.env, ou instale o Claude Code, ou coloque OPENAI_API_KEY. Rode windows\\diagnostico.cmd para testar.", true);
           }
           tts = h.tts || null;
@@ -992,7 +992,7 @@
       settle();
       if ($("wake").checked) scheduleListening();
       if ($("clap").checked) enableClaps();
-      setTimeout(checkSound, 300); // “Alfred a postos, senhor. É só me chamar.”
+      setTimeout(checkSound, 300); // “Alfred a postos, mestre. É só me chamar.”
     </script>
   </body>
 </html>

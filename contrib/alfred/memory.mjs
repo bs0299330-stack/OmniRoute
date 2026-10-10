@@ -167,7 +167,7 @@ export function openMemory(file) {
     /** The [Memória: …] block for the brain, or "" when there is nothing to tell. */
     block() {
       const parts = [];
-      if (data.name) parts.push(`o nome do senhor é ${data.name} (use o nome de vez em quando, sem exagero)`);
+      if (data.name) parts.push(`o nome do mestre é ${data.name} (chame-o de "mestre ${data.name.split(" ")[0]}" de vez em quando, sem exagero)`);
       for (const f of data.facts.slice(-20)) parts.push(describe(f));
       return parts.length ? `[Memória: ${parts.join("; ")}.]` : "";
     },
@@ -186,7 +186,7 @@ export function createMemoryControl(memory, { now = () => Date.now() } = {}) {
       confirmUntil = 0;
       if (waiting && /^(sim|pode|pode sim|confirmo|isso|claro|tenho certeza)\b/.test(plain(text))) {
         memory.forgetAll();
-        return "Pronto, senhor. Esqueci tudo o que sabia sobre o senhor.";
+        return "Pronto, mestre. Esqueci tudo o que sabia sobre o senhor.";
       }
       const cmd = parseMemoryCommand(text);
       if (cmd?.type === "recall") {
@@ -200,12 +200,12 @@ export function createMemoryControl(memory, { now = () => Date.now() } = {}) {
         return "Tem certeza que quer que eu esqueça tudo sobre o senhor? Diga sim para confirmar.";
       }
       if (cmd?.type === "forget") {
-        return memory.forget(cmd.query) ? "Pronto, senhor. Esqueci." : "Não encontrei isso na minha memória, senhor.";
+        return memory.forget(cmd.query) ? "Pronto, mestre. Esqueci." : "Não encontrei isso na minha memória, mestre.";
       }
       const learned = memory.learn(text);
       // "lembre que …" is a request: confirm it; anything else just continues the conversation
       if (learned && /^(?:(?:ei|ok|ola|oi)\s+)?(?:alfredo?[\s,.!]+)?(lembr|anot|guard|grav)/.test(plain(text))) {
-        return "Anotado, senhor.";
+        return "Anotado, mestre.";
       }
       return null;
     },

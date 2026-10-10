@@ -15,6 +15,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BRAIN_LABELS, BrainError, detectBrainInfo, getMemory, keepLocalWarm, streamReply } from "./brain.mjs";
+import { createCare } from "./care.mjs";
 import { briefing } from "./weblite.mjs";
 import {
   ELEVENLABS_FALLBACK_MODEL,
@@ -51,6 +52,7 @@ let brainReady = null;
 let brainFound = true;
 
 let stopWarm = null;
+const care = createCare(); // "cuidar de você": rest late at night, water on hot days
 
 function getBrain() {
   brainReady ??= detectBrainInfo(config).then((info) => {
@@ -205,7 +207,7 @@ async function handleChat(req, res) {
         "O Alfred está sem cérebro. Grátis e sem chave: rode o instalador de novo e escolha a opção 1 (IA no seu PC). Ou crie uma chave do Gemini em aistudio.google.com/apikey e coloque em GEMINI_API_KEY no alfred.env. Ou instale o Claude Code (irm https://claude.ai/install.ps1 | iex e depois rode claude para entrar), ou coloque OPENAI_API_KEY no alfred.env. O diagnostico.cmd testa tudo.",
     });
   }
-  const stream = streamReply(config, current, check.messages, { signal: controller.signal });
+  const stream = streamReply(config, current, check.messages, { signal: controller.signal, care });
   let first;
   try {
     first = await stream.next();

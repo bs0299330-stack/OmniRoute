@@ -3,6 +3,7 @@
 // weather, news or "who/what is …", fetches the answer from free public services (no key) and hands
 // it to the brain as context. Anything else goes to the brain unchanged.
 
+import { isHot, isLate } from "./care.mjs";
 import { ofWhom } from "./memory.mjs";
 
 const UA = "Alfred/1.0 (assistente pessoal; https://github.com/bs0299330-stack/OmniRoute)";
@@ -255,6 +256,34 @@ export async function lookup(found, { city = "", fetchImpl = fetch } = {}) {
 
 // ---------- Bom dia (the briefing spoken when Alfred starts) ----------
 
+/**
+ * "Curiosidade do dia": something that happened on this date, from the Portuguese Wikipedia's
+ * "Neste dia" feed. Resolves `{ year, text }` or null.
+ */
+export async function onThisDay(now = new Date(), fetchImpl = fetch) {
+  const two = (n) => String(n).padStart(2, "0");
+  try {
+    const feed = await getJson(
+      `https://api.wikimedia.org/feed/v1/wikipedia/pt/onthisday/selected/${two(now.getMonth() + 1)}/${two(now.getDate())}`,
+      fetchImpl
+    );
+    const events = (Array.isArray(feed.selected) ? feed.selected : [])
+      .map((e) => ({
+        year: Number(e.year),
+        text: String(e.text ?? "")
+          .replace(/\s*\([^)]*\)/g, "") // "(bandeiras)" and the like read badly aloud
+          .replace(/\s+/g, " ")
+          .trim(),
+      }))
+      .filter((e) => Number.isInteger(e.year) && e.text.length > 10 && e.text.length <= 220);
+    if (!events.length) return null;
+    const e = events[now.getFullYear() % events.length]; // a different one each year
+    return { year: e.year, text: /[.!?]$/.test(e.text) ? e.text : `${e.text}.` };
+  } catch {
+    return null;
+  }
+}
+
 /** "7 horas e 15 minutos", "1 hora em ponto", "meio-dia e meia"… as Alfred would say it. */
 export function spokenTime(now = new Date()) {
   const h = now.getHours();
@@ -269,16 +298,16 @@ export function spokenTime(now = new Date()) {
  * The daily briefing: greeting, day and time, the weather in the user's city and the top
  * headlines. Parts whose lookup failed are simply left out.
  */
-export function buildBriefing(now = new Date(), { weather = null, news = null, name = "", birthdays = [] } = {}) {
+export function buildBriefing(now = new Date(), { weather = null, news = null, name = "", birthdays = [], curiosity = null } = {}) {
   const h = now.getHours();
   const [greeting, wish] =
     h >= 5 && h < 12 ? ["Bom dia", "um excelente dia"] : h >= 12 && h < 18 ? ["Boa tarde", "uma excelente tarde"] : ["Boa noite", "uma excelente noite"];
   const date = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   const time = spokenTime(now);
-  const sir = name ? `senhor ${name.split(" ")[0]}` : "senhor";
+  const sir = name ? `mestre ${name.split(" ")[0]}` : "mestre";
   const parts = [`${greeting}, ${sir}. Hoje é ${date}, e ${/^(meia-noite|meio-dia)/.test(time) ? "é" : "são"} ${time}.`];
   for (const b of birthdays) {
-    parts.push(b.who ? `Não se esqueça: hoje é aniversário ${ofWhom(b.who)}.` : "E hoje é o seu aniversário! Meus parabéns, senhor.");
+    parts.push(b.who ? `Não se esqueça: hoje é aniversário ${ofWhom(b.who)}.` : "E hoje é o seu aniversário! Meus parabéns, mestre.");
   }
   const w = weather?.data;
   if (w?.day || w?.current) {
@@ -288,18 +317,24 @@ export function buildBriefing(now = new Date(), { weather = null, news = null, n
         (w.day.rain >= 30 ? `, com ${w.day.rain} por cento de chance de chuva.` : ".")
       : "";
     parts.push(`Em ${w.place}, ${now_}${day}`.trim());
+    if (isHot(w)) parts.push("Vai fazer calor, mestre: não se esqueça de beber bastante água.");
   }
   const titles = (news?.titles ?? []).slice(0, 3);
   if (titles.length) parts.push(`Nas notícias, segundo a ${news.source}: ${titles.map((t) => t.replace(/[.!?…]+$/, "")).join(". ")}.`);
-  parts.push(`Tenha ${wish}, senhor.`);
+  if (curiosity) {
+    const year = curiosity.year < 0 ? `${-curiosity.year} antes de Cristo` : curiosity.year;
+    parts.push(`Uma curiosidade: neste mesmo dia, em ${year}: ${curiosity.text}`);
+  }
+  parts.push(isLate(now) ? "Já é tarde, mestre. Não deixe de descansar." : `Tenha ${wish}, mestre.`);
   return parts.join(" ");
 }
 
-/** Looks up the weather and the news (in parallel) and builds the briefing. */
+/** Looks up the weather, the news and the curiosity (in parallel) and builds the briefing. */
 export async function briefing({ city = "", now = new Date(), fetchImpl = fetch, name = "", birthdays = [] } = {}) {
-  const [weather, news] = await Promise.all([
+  const [weather, news, curiosity] = await Promise.all([
     lookup({ kind: "weather", city: city || "São Paulo", day: 0 }, { fetchImpl }),
     lookup({ kind: "news" }, { fetchImpl }),
+    onThisDay(now, fetchImpl),
   ]);
-  return buildBriefing(now, { weather, news, name, birthdays });
+  return buildBriefing(now, { weather, news, name, birthdays, curiosity });
 }

@@ -283,7 +283,7 @@ async function* streamClaude(config, messages, signal) {
  * when nothing at all happens for `idleMs` (so a stuck brain never leaves the user waiting; a long
  * web search that keeps reporting progress is not cut off).
  */
-export async function* streamReply(config, brain, messages, { signal, idleMs = FIRST_TOKEN_TIMEOUT_MS, firstTokenMs } = {}) {
+export async function* streamReply(config, brain, messages, { signal, idleMs = FIRST_TOKEN_TIMEOUT_MS, firstTokenMs, care } = {}) {
   idleMs = firstTokenMs ?? idleMs;
   const ctl = new AbortController();
   const forward = () => ctl.abort();
@@ -341,11 +341,16 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
       brain === "claude"
         ? streamClaude(config, messages, ctl.signal)
         : streamChatCompletions(config, brain, messages, ctl.signal, found);
+    let answered = false;
     for await (const piece of inner) {
       arm();
+      if (typeof piece === "string" && piece.trim()) answered = true;
       yield piece;
     }
     if (timedOut) throw timeoutError();
+    // "Cuidar de você" (care.mjs): rest late at night, water on a hot day — rarely, after an answer.
+    const caring = answered ? care?.note({ weather: wanted?.kind === "weather" ? found?.data : null }) : "";
+    if (caring) yield ` ${caring}`;
   } catch (err) {
     if (timedOut) throw timeoutError();
     throw err;

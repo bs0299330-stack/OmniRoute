@@ -44,9 +44,9 @@ function fakePc(platform = "win32") {
 
 test("commands run fixed programs without a shell; user words only reach an encoded https URL", () => {
   const { pc, calls } = fakePc();
-  assert.equal(pc.handle("abre o YouTube"), "Abrindo YouTube, senhor.");
-  assert.equal(pc.handle("abre a calculadora"), "Abrindo a calculadora, senhor.");
-  assert.equal(pc.handle(`pesquisa a & b "c" no google`), `Procurando a & b "c" no Google, senhor.`);
+  assert.equal(pc.handle("abre o YouTube"), "Abrindo YouTube, mestre.");
+  assert.equal(pc.handle("abre a calculadora"), "Abrindo a calculadora, mestre.");
+  assert.equal(pc.handle(`pesquisa a & b "c" no google`), `Procurando a & b "c" no Google, mestre.`);
   assert.equal(pc.handle("aumenta o volume"), "Aumentando o volume.");
   assert.equal(pc.handle("que horas são?"), null, "not a command: the brain answers");
   assert.deepEqual(calls[0], ["explorer.exe", "https://www.youtube.com/"]);
@@ -57,20 +57,20 @@ test("commands run fixed programs without a shell; user words only reach an enco
 
 test("shut down always asks first; only 'sim' within 30 s confirms, with a minute to cancel", () => {
   const { pc, calls, wait } = fakePc();
-  assert.equal(pc.handle("desliga o PC"), "Tem certeza que quer desligar o computador, senhor? Diga sim para confirmar.");
+  assert.equal(pc.handle("desliga o PC"), "Tem certeza que quer desligar o computador, mestre? Diga sim para confirmar.");
   assert.equal(calls.length, 0, "nothing runs before the confirmation");
-  assert.equal(pc.handle("não"), "Tudo bem, senhor. Não vou desligar.");
+  assert.equal(pc.handle("não"), "Tudo bem, mestre. Não vou desligar.");
   assert.equal(pc.handle("sim"), null, "a later 'sim' confirms nothing");
-  assert.match(pc.handle("desliga o computador daqui a 30 minutos") ?? "", /daqui a 30 minutos, senhor\? Diga sim/);
+  assert.match(pc.handle("desliga o computador daqui a 30 minutos") ?? "", /daqui a 30 minutos, mestre\? Diga sim/);
   wait(31_000);
   assert.equal(pc.handle("sim"), null, "the question expired");
   pc.handle("reinicia o computador");
-  assert.equal(pc.handle("sim, pode"), "Reiniciando o computador em um minuto, senhor. Se mudar de ideia, diga: cancela o desligamento.");
+  assert.equal(pc.handle("sim, pode"), "Reiniciando o computador em um minuto, mestre. Se mudar de ideia, diga: cancela o desligamento.");
   assert.deepEqual(calls.at(-1), ["shutdown.exe", "/r", "/t", "60"]);
-  assert.equal(pc.handle("cancela o desligamento"), "Desligamento cancelado, senhor.");
+  assert.equal(pc.handle("cancela o desligamento"), "Desligamento cancelado, mestre.");
   assert.deepEqual(calls.at(-1), ["shutdown.exe", "/a"]);
   pc.handle("desliga o PC");
-  assert.equal(pc.handle("abre o youtube"), "Abrindo YouTube, senhor.", "another command drops the pending shut down");
+  assert.equal(pc.handle("abre o youtube"), "Abrindo YouTube, mestre.", "another command drops the pending shut down");
   assert.ok(!calls.some((c) => c[1] === "/s"), "the PC was never shut down");
 });
 

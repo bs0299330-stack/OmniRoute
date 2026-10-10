@@ -45,7 +45,7 @@ test("the memory learns, updates instead of duplicating, survives a restart, and
   assert.deepEqual(again.facts, ["Gosta de pizza", "O aniversário da sua mãe é dia 4 de maio"], "the newer date replaced the old one");
   assert.deepEqual(again.birthdaysOn(new Date(2027, 4, 4)), [{ who: "sua mãe" }]);
   assert.deepEqual(again.birthdaysOn(new Date(2027, 4, 3)), []);
-  assert.match(again.block(), /^\[Memória: o nome do senhor é Bruno \(use o nome de vez em quando, sem exagero\); Gosta de pizza; O aniversário da sua mãe é dia 4 de maio\.\]$/);
+  assert.match(again.block(), /^\[Memória: o nome do mestre é Bruno \(chame-o de "mestre Bruno" de vez em quando, sem exagero\); Gosta de pizza; O aniversário da sua mãe é dia 4 de maio\.\]$/);
   assert.equal(again.forget("eu gosto de pizza"), 1);
   assert.equal(again.forget("o meu nome"), 1);
   assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).facts.length, 1);
@@ -59,7 +59,7 @@ test("memory control: answers recall/forget/remember itself; 'esquece tudo' need
   const c = createMemoryControl(m, { now: () => clock });
   assert.equal(c.handle("o que você sabe sobre mim?"), "Ainda não sei nada sobre o senhor. Conte-me o que quiser, que eu guardo.");
   assert.equal(c.handle("meu nome é Bruno e eu gosto de pizza"), null, "learned silently, the brain still answers");
-  assert.equal(c.handle("Alfred, lembre que o carro é na oficina do Zé"), "Anotado, senhor.");
+  assert.equal(c.handle("Alfred, lembre que o carro é na oficina do Zé"), "Anotado, mestre.");
   assert.equal(
     c.handle("o que você sabe sobre mim?"),
     "O seu nome é Bruno. Sei que: Gosta de pizza; O senhor pediu para lembrar: o carro é na oficina do Zé."
@@ -102,7 +102,7 @@ test("Alfred uses the memory: [Memória] goes to the brain, and the briefing gre
       return out;
     };
     assert.equal(await say("meu nome é Bruno"), "Pois não.");
-    assert.match(sent!.messages.at(-1)!.content, /\[Memória: o nome do senhor é Bruno/);
+    assert.match(sent!.messages.at(-1)!.content, /\[Memória: o nome do mestre é Bruno/);
     assert.match(sent!.messages[0].content, /bloco \[Memória: …\]/, "the persona explains the block");
     assert.equal(await say("o que você sabe sobre mim?"), "O seu nome é Bruno.");
     const off = loadConfig({ ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1`, ALFRED_MEMORY: "off", ALFRED_WEB: "off" });
@@ -115,6 +115,6 @@ test("Alfred uses the memory: [Memória] goes to the brain, and the briefing gre
   const text = buildBriefing(new Date(2026, 4, 3, 7, 0), { name: "Bruno Silva", birthdays: [{ who: "sua mãe" }, { who: "" }] });
   assert.equal(
     text,
-    "Bom dia, senhor Bruno. Hoje é domingo, 3 de maio, e são 7 horas em ponto. Não se esqueça: hoje é aniversário da sua mãe. E hoje é o seu aniversário! Meus parabéns, senhor. Tenha um excelente dia, senhor."
+    "Bom dia, mestre Bruno. Hoje é domingo, 3 de maio, e são 7 horas em ponto. Não se esqueça: hoje é aniversário da sua mãe. E hoje é o seu aniversário! Meus parabéns, mestre. Tenha um excelente dia, mestre."
   );
 });

@@ -18,7 +18,8 @@ test("every fixed phrase has a line, and every recording belongs to a phrase", (
       assert.ok(existsSync(join(PUBLIC, p.file)), `${name}: missing ${p.file}`);
     }
   }
-  const onDisk = readdirSync(join(PUBLIC, "frases")).map((f) => `frases/${f}`);
+  const dir = join(PUBLIC, "frases");
+  const onDisk = existsSync(dir) ? readdirSync(dir).map((f) => `frases/${f}`) : [];
   assert.deepEqual([...onDisk].sort(), [...files].sort());
 });
 
@@ -203,6 +204,13 @@ test("cancel stops a recording and later speech does not wait for it", async () 
 
 test("the server serves the recordings and nothing outside public/frases", async () => {
   const { spawn } = await import("node:child_process");
+  // no recording ships today (the voice is still to be chosen): serve a temporary one
+  const { mkdirSync, rmSync, rmdirSync, writeFileSync } = await import("node:fs");
+  const dir = join(PUBLIC, "frases");
+  const madeDir = !existsSync(dir);
+  mkdirSync(dir, { recursive: true });
+  const clip = `teste-${process.pid}`;
+  writeFileSync(join(dir, `${clip}.mp3`), Buffer.from("ID3fake-mp3"));
   const port = 30000 + (process.pid % 20000);
   const child = spawn(process.execPath, ["contrib/alfred/server.mjs"], {
     env: { ...process.env, ALFRED_PORT: String(port), ALFRED_BRAIN: "gemini", GEMINI_API_KEY: "test", ALFRED_TOKEN: "" },
@@ -220,18 +228,20 @@ test("the server serves the recordings and nothing outside public/frases", async
       child.on("exit", (code) => reject(new Error("server exited " + code)));
     });
     const base = `http://127.0.0.1:${port}`;
-    const ok = await fetch(`${base}/frases/bom-dia.mp3`);
+    const ok = await fetch(`${base}/frases/${clip}.mp3`);
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get("content-type"), "audio/mpeg");
     const body = Buffer.from(await ok.arrayBuffer());
-    assert.ok(body.equals(readFileSync(join(PUBLIC, "frases/bom-dia.mp3"))));
-    for (const path of ["/frases/nao-existe.mp3", "/frases/..%2fserver.mjs", "/frases/%2e%2e/server.mjs", "/frases/BOM-DIA.mp3"]) {
+    assert.ok(body.equals(readFileSync(join(dir, `${clip}.mp3`))));
+    for (const path of ["/frases/nao-existe.mp3", "/frases/..%2fserver.mjs", "/frases/%2e%2e/server.mjs", `/frases/${clip.toUpperCase()}.mp3`]) {
       const res = await fetch(base + path);
       assert.equal(res.status, 404, path);
       await res.arrayBuffer();
     }
   } finally {
     child.kill();
+    rmSync(join(dir, `${clip}.mp3`), { force: true });
+    if (madeDir) rmdirSync(dir);
   }
 });
 

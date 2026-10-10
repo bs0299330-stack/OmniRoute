@@ -111,17 +111,39 @@ test("bom dia: spoken time and the daily briefing, leaving out what could not be
   };
   const news = { source: "Agência Brasil", text: "", titles: ["Senado vota PEC.", "Chuva no Sul", "Copa começa", "Quarta manchete"] };
   assert.equal(
-    buildBriefing(at(7, 15), { weather, news }),
-    "Bom dia, senhor. Hoje é sábado, 10 de outubro, e são 7 horas e 15 minutos. " +
+    buildBriefing(at(7, 15), { weather, news, curiosity: { year: 1911, text: "Começa a Revolta de Wuchang." } }),
+    "Bom dia, mestre. Hoje é sábado, 10 de outubro, e são 7 horas e 15 minutos. " +
       "Em Cabixi, agora faz 23 graus, com poucas nuvens. Para hoje, trovoadas, mínima de 22 e máxima de 33 graus, com 97 por cento de chance de chuva. " +
+      "Vai fazer calor, mestre: não se esqueça de beber bastante água. " +
       "Nas notícias, segundo a Agência Brasil: Senado vota PEC. Chuva no Sul. Copa começa. " +
-      "Tenha um excelente dia, senhor."
+      "Uma curiosidade: neste mesmo dia, em 1911: Começa a Revolta de Wuchang. " +
+      "Tenha um excelente dia, mestre."
   );
   assert.equal(
     buildBriefing(at(12, 0)),
-    "Boa tarde, senhor. Hoje é sábado, 10 de outubro, e é meio-dia. Tenha uma excelente tarde, senhor.",
+    "Boa tarde, mestre. Hoje é sábado, 10 de outubro, e é meio-dia. Tenha uma excelente tarde, mestre.",
     "no weather, no news: just the greeting"
   );
-  const dry = { ...weather, data: { ...weather.data, current: null, day: { ...weather.data.day, rain: 10 } } };
-  assert.match(buildBriefing(at(20, 5), { weather: dry }), /^Boa noite.*Em Cabixi, para hoje, trovoadas, mínima de 22 e máxima de 33 graus\. Tenha uma excelente noite, senhor\.$/);
+  const dry = { ...weather, data: { ...weather.data, current: null, day: { ...weather.data.day, max: 30, rain: 10 } } };
+  assert.match(buildBriefing(at(20, 5), { weather: dry }), /^Boa noite.*Em Cabixi, para hoje, trovoadas, mínima de 22 e máxima de 30 graus\. Tenha uma excelente noite, mestre\.$/);
+  assert.match(buildBriefing(at(23, 40)), /^Boa noite, mestre\..* Já é tarde, mestre\. Não deixe de descansar\.$/, "late at night: rest");
+});
+
+test("curiosidade do dia: Wikipedia's 'Neste dia', cleaned for speech; null when it fails", async () => {
+  const { onThisDay } = await import("../../contrib/alfred/weblite.mjs");
+  const feed = fakeFetch({
+    "https://api.wikimedia.org/feed/v1/wikipedia/pt/onthisday/selected/10/10": {
+      selected: [
+        { year: 1911, text: "Começa a Revolta de Wuchang, que leva à fundação da República da China (bandeiras) no ano seguinte" },
+        { year: 2003, text: "x".repeat(300) },
+      ],
+    },
+  });
+  assert.deepEqual(await onThisDay(new Date(2026, 9, 10, 7), feed.impl), {
+    year: 1911,
+    text: "Começa a Revolta de Wuchang, que leva à fundação da República da China no ano seguinte.",
+  });
+  assert.equal(await onThisDay(new Date(2026, 9, 10, 7), fakeFetch({}).impl), null);
+  const { buildBriefing } = await import("../../contrib/alfred/weblite.mjs");
+  assert.match(buildBriefing(new Date(2026, 2, 15, 9), { curiosity: { year: -44, text: "Júlio César é assassinado." } }), /em 44 antes de Cristo: Júlio César/);
 });

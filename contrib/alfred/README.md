@@ -250,7 +250,7 @@ reconhecimento de voz).
 - **O microfone fica sempre ligado**, esperando o nome "Alfred" ou duas palmas. Ele não responde à
   TV nem a quem conversa perto do PC, só a quem chama pelo nome. Depois de chamado, ele responde,
   ouve de novo e continua até você dizer "tchau" ou ficar cerca de 1 minuto em silêncio. Aí ele
-  diz "Estarei por aqui, senhor" e volta a esperar o nome.
+  diz "Estarei por aqui, mestre" e volta a esperar o nome.
 - Enquanto o Alfred fala, o microfone fica fechado para ele não ouvir a própria voz. Um bipe avisa
   quando é a sua vez.
 - **O globo mostra o estado:** cinza esperando, amarelo ouvindo ou falando, pulsando ao pensar.
@@ -266,8 +266,10 @@ reconhecimento de voz).
 
 Na **primeira vez que o Alfred abre no dia** (por exemplo, quando o PC liga com
 `ligar-com-o-windows.cmd`), ele fala sozinho um bom dia completo: o dia e a hora, o clima de hoje
-na sua cidade (Open-Meteo) e as três principais manchetes (Agência Brasil). Ao reabrir no mesmo dia,
-ele diz só "Alfred a postos". Depois do meio-dia vira "Boa tarde" e, à noite, "Boa noite".
+na sua cidade (Open-Meteo), as três principais manchetes (Agência Brasil) e uma **curiosidade do
+dia**, algo que aconteceu nesta data (seção "Neste dia" da Wikipédia). Se for fazer calor, ele
+lembra de beber água. Ao reabrir no mesmo dia, ele diz só "Alfred a postos". Depois do meio-dia
+vira "Boa tarde" e, à noite, "Boa noite".
 
 A cidade é perguntada pelo instalador uma vez e fica no `alfred.env` deste PC
 (`ALFRED_CITY="Sua Cidade"`). Sem ela, o clima é o de São Paulo.
@@ -290,6 +292,22 @@ nada, então nenhuma página ou resposta consegue mandar o Alfred mexer no PC. S
 rodam, sem passar suas palavras para um terminal: elas só entram codificadas no endereço da busca.
 `ALFRED_PC=off` no `alfred.env` desliga tudo isso.
 
+### Personalidade
+
+O Alfred é um **mordomo clássico**: educado, elegante e discreto, com um humor britânico sutil. Ele
+chama você de **"mestre"** (ou "mestre Bruno", quando sabe o seu nome) e usa "o senhor" no meio da
+frase, como o mordomo do Batman.
+
+**Ele cuida de você**, sem ficar repetindo:
+
+- **Tarde da noite** (das 23h às 5h), ao fim de uma resposta: "E já é tarde, mestre. Não seria
+  hora de descansar?". No máximo uma vez a cada duas horas.
+- **Dia quente** (32 graus ou mais): quando você pergunta do clima, ele lembra de beber água. Uma
+  vez por dia. O bom dia também avisa.
+
+O jeito de falar fica em `DEFAULT_SYSTEM_PROMPT` (`lib.mjs`) e pode ser trocado com
+`ALFRED_SYSTEM_PROMPT`; os lembretes ficam em `care.mjs`.
+
 ### Lembrar de você
 
 O Alfred aprende sozinho com o que você conta na conversa e guarda no arquivo `memoria.json`,
@@ -301,7 +319,7 @@ O Alfred aprende sozinho com o que você conta na conversa e guarda no arquivo `
 | "Meu aniversário é dia 10 de junho"                              | Dá os parabéns no bom dia do dia     |
 | "O aniversário da minha mãe é dia 3 de maio"                     | Avisa no bom dia daquele dia         |
 | "Eu gosto de pizza de calabresa", "eu não gosto de…", "eu moro em…", "eu trabalho com…" | Usa nas respostas |
-| "Lembre que a reunião é na sexta"                                | Anota ("Anotado, senhor.")          |
+| "Lembre que a reunião é na sexta"                                | Anota ("Anotado, mestre.")          |
 | "O que você sabe sobre mim?"                                     | Fala tudo o que guardou              |
 | "Esquece que eu gosto de pizza"                                  | Apaga só aquilo                      |
 | "Esquece tudo"                                                   | Pergunta antes; só com **sim** apaga |
@@ -312,7 +330,7 @@ O Alfred aprende sozinho com o que você conta na conversa e guarda no arquivo `
 
 As palmas já vêm ligadas (dá para desligar no menu, tecla **M**). Com o Alfred parado, bata **duas
 palmas seguidas**: toca a música de abertura e ele cumprimenta conforme a hora ("Bom dia / Boa
-tarde / Boa noite, senhor. Em que posso ser útil?"). Depois é só falar.
+tarde / Boa noite, mestre. Em que posso ser útil?"). Depois é só falar.
 
 - O detector roda no próprio PC, em `public/clap.mjs`, e nada do microfone é enviado. Ele só aceita
   duas batidas curtas e fortes, com 0,15 a 0,8 s entre elas e silêncio antes e depois. Fala, música,
@@ -373,31 +391,24 @@ depois vozes masculinas.
 A voz é um personagem original no estilo de um mordomo. Ela não imita a voz de nenhum ator ou
 dublador real.
 
-### Frases gravadas (voz do Fabio)
+### Frases fixas
 
-As frases fixas do Alfred tocam gravadas, na voz **"Fabio Oliveira Deep Portuguese"** da biblioteca
-de vozes do [ElevenLabs](https://elevenlabs.io), sem chave nenhuma no PC: os áudios ficam em
-`public/frases/`. O resto (as respostas da IA) sai na voz configurada acima.
+Algumas falas do Alfred são sempre as mesmas e saem na voz configurada acima:
 
-| Frase                                         | Quando                         | Arquivo               |
-| --------------------------------------------- | ------------------------------ | --------------------- |
-| "Bom dia / Boa tarde / Boa noite, senhor. Em que posso ser útil?" | duas palmas     | `bom-dia.mp3`, `boa-tarde.mp3`, `boa-noite.mp3` |
-| "Um momento, senhor. Vou verificar."           | quando ele começa a pesquisar  | `momento.mp3`         |
-| "Pois não, senhor?"                            | chamado só pelo nome           | (voz normal)          |
-| "Às suas ordens, senhor."                      | "tchau"                        | (voz normal)          |
-| "Estarei por aqui, senhor. É só chamar."       | fim da conversa por silêncio   | (voz normal)          |
-| "Perdão, senhor. Não consegui responder agora." | erro                          | (voz normal)          |
-| "Alfred a postos, senhor. É só me chamar."     | ao abrir                       | (voz normal)          |
+| Frase                                                            | Quando                       |
+| ---------------------------------------------------------------- | ---------------------------- |
+| "Bom dia / Boa tarde / Boa noite, mestre. Em que posso ser útil?" | duas palmas                 |
+| "Um momento, mestre. Vou verificar."                             | quando ele começa a pesquisar |
+| "Pois não, mestre?"                                              | chamado só pelo nome         |
+| "Às suas ordens, mestre."                                        | "tchau"                      |
+| "Estarei por aqui, mestre. É só chamar."                         | fim da conversa por silêncio |
+| "Perdão, mestre. Não consegui responder agora."                  | erro                         |
+| "Alfred a postos, mestre. É só me chamar."                       | ao abrir                     |
 
-Para gravar as outras: gere a frase no ElevenLabs, salve o MP3 em `public/frases/` com um nome
-simples (letras minúsculas, números e hífen) e coloque esse caminho no `file` da frase em `PHRASES`
-(`public/voice.mjs`). Em **Frases gravadas** (menu, tecla M) você desliga as gravações e volta tudo
-para a voz normal.
-
-**Licença dos áudios:** os arquivos de `public/frases/` **não** estão cobertos pela licença MIT do
-repositório. Eles foram gerados no plano grátis do ElevenLabs com uma voz da Voice Library e valem
-só para uso pessoal, não comercial, nos termos do ElevenLabs (com o crédito acima). Para qualquer
-outro uso, gere os seus próprios áudios.
+Para uma frase tocar gravada (por exemplo, com uma voz feita no ElevenLabs), salve o MP3 em
+`public/frases/` com um nome simples (letras minúsculas, números e hífen) e coloque esse caminho no
+`file` da frase em `PHRASES` (`public/voice.mjs`). Use só áudios que você tenha o direito de usar.
+Em **Frases gravadas** (menu, tecla M) você desliga as gravações e volta tudo para a voz normal.
 
 ## Falar com o Alfred pelo celular (com microfone)
 
@@ -476,6 +487,9 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 - `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Ollama (IA do PC), Gemini, OpenAI ou Claude Code, em streaming.
   O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
+- `weblite.mjs` — "internet leve" (cotações, clima, notícias, Wikipédia) e o bom dia.
+- `pc.mjs` — comandos do PC (lista fixa, sem terminal); `memory.mjs` — a memória (`memoria.json`);
+  `care.mjs` — os lembretes de descanso e de água. Cada um tem o seu `tests/unit/alfred-*.test.ts`.
 - `public/hud.css` + `public/hud.mjs` — o visual e o globo de ~700 partículas: gira devagar em
   espera, fica amarelo e "respira" ouvindo, gira em faixas processando e se agita com a voz
   falando (pelo volume real da voz de IA, ou pelas palavras da voz do navegador).

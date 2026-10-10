@@ -148,11 +148,11 @@ export function createPcControl({ platform = process.platform, spawnImpl = spawn
   function execute(cmd) {
     if (cmd.type === "site") {
       const [name, url] = SITES[cmd.key];
-      return openUrl(url, spawnImpl) ? `Abrindo ${name}, senhor.` : `Não consegui abrir ${name}, senhor.`;
+      return openUrl(url, spawnImpl) ? `Abrindo ${name}, mestre.` : `Não consegui abrir ${name}, mestre.`;
     }
     if (cmd.type === "program") {
       const [name, target] = PROGRAMS[cmd.key];
-      return startProgram(target, spawnImpl) ? `Abrindo ${name}, senhor.` : `Não consegui abrir ${name}, senhor.`;
+      return startProgram(target, spawnImpl) ? `Abrindo ${name}, mestre.` : `Não consegui abrir ${name}, mestre.`;
     }
     if (cmd.type === "search") {
       const url =
@@ -160,23 +160,23 @@ export function createPcControl({ platform = process.platform, spawnImpl = spawn
           ? `https://www.youtube.com/results?search_query=${encodeURIComponent(cmd.query)}`
           : `https://www.google.com/search?q=${encodeURIComponent(cmd.query)}`;
       return openUrl(url, spawnImpl)
-        ? `Procurando ${cmd.query} no ${cmd.where === "youtube" ? "YouTube" : "Google"}, senhor.`
-        : "Não consegui abrir o navegador, senhor.";
+        ? `Procurando ${cmd.query} no ${cmd.where === "youtube" ? "YouTube" : "Google"}, mestre.`
+        : "Não consegui abrir o navegador, mestre.";
     }
     if (cmd.type === "key") {
       const said = { up: "Aumentando o volume.", down: "Abaixando o volume.", mute: "Pronto.", playpause: "Pronto.", next: "Próxima.", prev: "Voltando." };
-      return pressKey(KEYS[cmd.key], cmd.times, spawnImpl) ? said[cmd.key] : "Não consegui mexer no som, senhor.";
+      return pressKey(KEYS[cmd.key], cmd.times, spawnImpl) ? said[cmd.key] : "Não consegui mexer no som, mestre.";
     }
     if (cmd.type === "cancel") {
       run("shutdown.exe", ["/a"], spawnImpl);
-      return "Desligamento cancelado, senhor.";
+      return "Desligamento cancelado, mestre.";
     }
     if (cmd.type === "shutdown") {
       // a minute of grace even when "now" was asked, so "cancela o desligamento" still works
       const seconds = Math.max(60, cmd.delay);
       run("shutdown.exe", [cmd.restart ? "/r" : "/s", "/t", String(seconds)], spawnImpl);
       const what = cmd.restart ? "Reiniciando" : "Desligando";
-      return `${what} o computador em ${spokenDelay(seconds)}, senhor. Se mudar de ideia, diga: cancela o desligamento.`;
+      return `${what} o computador em ${spokenDelay(seconds)}, mestre. Se mudar de ideia, diga: cancela o desligamento.`;
     }
     return null;
   }
@@ -188,17 +188,17 @@ export function createPcControl({ platform = process.platform, spawnImpl = spawn
       if (waiting) {
         if (YES.test(plain(text).replace(WAKE, ""))) return execute(waiting.command);
         const other = parseCommand(text);
-        if (!other) return "Tudo bem, senhor. Não vou desligar.";
+        if (!other) return "Tudo bem, mestre. Não vou desligar.";
         // a different command: forget the shutdown and carry on with the new one below
       }
       const cmd = parseCommand(text);
       if (!cmd) return null;
-      if (platform !== "win32") return "Por enquanto só consigo mexer no computador quando ele é Windows, senhor.";
+      if (platform !== "win32") return "Por enquanto só consigo mexer no computador quando ele é Windows, mestre.";
       if (cmd.type === "shutdown") {
         pending = { command: cmd, until: now() + 30_000 };
         const what = cmd.restart ? "reiniciar" : "desligar";
         const when = cmd.delay ? ` daqui a ${spokenDelay(cmd.delay)}` : "";
-        return `Tem certeza que quer ${what} o computador${when}, senhor? Diga sim para confirmar.`;
+        return `Tem certeza que quer ${what} o computador${when}, mestre? Diga sim para confirmar.`;
       }
       return execute(cmd);
     },
