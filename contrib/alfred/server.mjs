@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, detectBrainInfo, keepLocalWarm, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, detectBrainInfo, getMemory, keepLocalWarm, streamReply } from "./brain.mjs";
 import { briefing } from "./weblite.mjs";
 import {
   ELEVENLABS_FALLBACK_MODEL,
@@ -269,7 +269,11 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/tts") return await handleTts(req, res);
     if (req.method === "GET" && url.pathname === "/api/briefing") {
       // The "bom dia" spoken when Alfred starts: day, time, weather in ALFRED_CITY and headlines.
-      return sendJson(res, 200, { text: await briefing({ city: config.city }) });
+      const memory = getMemory(config)?.memory;
+      const now = new Date();
+      return sendJson(res, 200, {
+        text: await briefing({ city: config.city, now, name: memory?.name ?? "", birthdays: memory?.birthdaysOn(now) ?? [] }),
+      });
     }
     sendJson(res, 404, { error: "Não encontrado." });
   } catch (err) {

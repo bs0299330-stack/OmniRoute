@@ -290,6 +290,24 @@ nada, então nenhuma página ou resposta consegue mandar o Alfred mexer no PC. S
 rodam, sem passar suas palavras para um terminal: elas só entram codificadas no endereço da busca.
 `ALFRED_PC=off` no `alfred.env` desliga tudo isso.
 
+### Lembrar de você
+
+O Alfred aprende sozinho com o que você conta na conversa e guarda no arquivo `memoria.json`,
+**só neste PC** (ele não vai para o GitHub nem para a internet).
+
+| Você diz                                                         | O Alfred guarda                     |
+| ---------------------------------------------------------------- | ----------------------------------- |
+| "Meu nome é Bruno", "pode me chamar de Bruno"                    | Passa a chamar você pelo nome        |
+| "Meu aniversário é dia 10 de junho"                              | Dá os parabéns no bom dia do dia     |
+| "O aniversário da minha mãe é dia 3 de maio"                     | Avisa no bom dia daquele dia         |
+| "Eu gosto de pizza de calabresa", "eu não gosto de…", "eu moro em…", "eu trabalho com…" | Usa nas respostas |
+| "Lembre que a reunião é na sexta"                                | Anota ("Anotado, senhor.")          |
+| "O que você sabe sobre mim?"                                     | Fala tudo o que guardou              |
+| "Esquece que eu gosto de pizza"                                  | Apaga só aquilo                      |
+| "Esquece tudo"                                                   | Pergunta antes; só com **sim** apaga |
+
+`ALFRED_MEMORY=off` no `alfred.env` desliga a memória.
+
 ### Chamar com duas palmas
 
 As palmas já vêm ligadas (dá para desligar no menu, tecla **M**). Com o Alfred parado, bata **duas
@@ -422,6 +440,7 @@ ele envia sozinho.
 | `ALFRED_WEB`           | `full`                       | Internet: `full`, `search` ou `off`             |
 | `ALFRED_CITY`          | São Paulo                    | Cidade do clima quando a pergunta não diz qual  |
 | `ALFRED_PC`            | ligado                       | `off` desliga os comandos do PC                 |
+| `ALFRED_MEMORY`        | `memoria.json`               | Arquivo da memória; `off` desliga               |
 | `ALFRED_OPENAI_SEARCH_MODEL` | `gpt-5-search-api`     | Modelo da OpenAI com pesquisa na web            |
 | `ALFRED_STT_MODEL`     | `gpt-4o-mini-transcribe`     | Transcrição do microfone no terminal            |
 | `OMNIROUTE_URL`        | `http://localhost:20128/v1`  | Endpoint OpenAI-compatível do OmniRoute         |

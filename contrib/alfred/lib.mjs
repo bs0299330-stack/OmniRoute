@@ -30,6 +30,12 @@ export const NO_WEB_PROMPT = [
   "momento, em vez de chutar.",
 ].join(" ");
 
+/** How the brain should use what Alfred remembers (memory.mjs). */
+export const MEMORY_PROMPT = [
+  "A mensagem do usuário pode trazer um bloco [Memória: …] com o que você já sabe sobre ele:",
+  "use isso com naturalidade quando fizer sentido, e nunca leia nem mencione o bloco.",
+].join(" ");
+
 // The local AI answers on the CPU: a shorter history and reply keep the first word quick.
 export const LOCAL_HISTORY_MESSAGES = 12;
 export const LOCAL_MAX_TOKENS = 300;
@@ -137,6 +143,8 @@ export function loadConfig(env = process.env) {
     city: env.ALFRED_CITY || "",
     // Voice commands for the PC (sites, programs, volume, shut down); "off" turns them off.
     pc: String(env.ALFRED_PC || "").toLowerCase() === "off" ? "off" : "on",
+    // Memory file (memoria.json next to Alfred by default); "off" turns the memory off.
+    memory: env.ALFRED_MEMORY || "",
     ...resolveTts(env),
   };
 }
@@ -225,7 +233,7 @@ export function buildSystemPrompt(config, now = new Date(), { web = false, clock
   const when = clock
     ? `Data e hora atuais: ${now.toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`
     : `Data de hoje: ${now.toLocaleDateString("pt-BR", { dateStyle: "full" })}.`;
-  const parts = [config.systemPrompt, when];
+  const parts = [config.systemPrompt, when, MEMORY_PROMPT];
   if (web) parts.push(WEB_PROMPT);
   if (config.userName) parts.push(`O nome do seu patrão é ${config.userName}.`);
   return parts.join(" ");

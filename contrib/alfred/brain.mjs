@@ -14,12 +14,34 @@ import {
   liteWebSystemPrompt,
   usesLiteWeb,
 } from "./lib.mjs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createMemoryControl, openMemory } from "./memory.mjs";
 import { createPcControl } from "./pc.mjs";
 import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
 
 // Voice commands for the PC ("abre o YouTube", "aumenta o volume", "desliga o PC"…), shared by
 // the page and the terminal; it keeps the one pending "tem certeza?" confirmation.
 let pcControl = null;
+
+// What Alfred remembers about the user: memoria.json next to Alfred, only on this PC.
+const memories = new Map();
+/** The memory for this config (null when ALFRED_MEMORY=off). */
+export function getMemory(config) {
+  if (config.memory === "off") return null;
+  const file = config.memory || join(dirname(fileURLToPath(import.meta.url)), "memoria.json");
+  if (!memories.has(file)) {
+    const memory = openMemory(file);
+    memories.set(file, { memory, control: createMemoryControl(memory) });
+  }
+  return memories.get(file);
+}
+
+function withMemory(messages, block) {
+  if (!block) return messages;
+  const last = messages[messages.length - 1];
+  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n${block}` }];
+}
 
 export const BRAIN_LABELS = {
   omniroute: "OmniRoute",
@@ -290,6 +312,17 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
         yield done;
         return;
       }
+    }
+    // Memory: "o que você sabe sobre mim?", "esquece…", "lembre que…" are answered here; every
+    // other message is read for new facts, and what Alfred knows goes along to the brain.
+    const mem = getMemory(config);
+    if (mem) {
+      const said = mem.control.handle(messages[messages.length - 1]?.content);
+      if (said) {
+        yield said;
+        return;
+      }
+      messages = withMemory(messages, mem.memory.block());
     }
     let found = null;
     // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"

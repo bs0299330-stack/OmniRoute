@@ -3,6 +3,8 @@
 // weather, news or "who/what is …", fetches the answer from free public services (no key) and hands
 // it to the brain as context. Anything else goes to the brain unchanged.
 
+import { ofWhom } from "./memory.mjs";
+
 const UA = "Alfred/1.0 (assistente pessoal; https://github.com/bs0299330-stack/OmniRoute)";
 const TIMEOUT_MS = 5000;
 
@@ -267,13 +269,17 @@ export function spokenTime(now = new Date()) {
  * The daily briefing: greeting, day and time, the weather in the user's city and the top
  * headlines. Parts whose lookup failed are simply left out.
  */
-export function buildBriefing(now = new Date(), { weather = null, news = null } = {}) {
+export function buildBriefing(now = new Date(), { weather = null, news = null, name = "", birthdays = [] } = {}) {
   const h = now.getHours();
   const [greeting, wish] =
     h >= 5 && h < 12 ? ["Bom dia", "um excelente dia"] : h >= 12 && h < 18 ? ["Boa tarde", "uma excelente tarde"] : ["Boa noite", "uma excelente noite"];
   const date = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   const time = spokenTime(now);
-  const parts = [`${greeting}, senhor. Hoje é ${date}, e ${/^(meia-noite|meio-dia)/.test(time) ? "é" : "são"} ${time}.`];
+  const sir = name ? `senhor ${name.split(" ")[0]}` : "senhor";
+  const parts = [`${greeting}, ${sir}. Hoje é ${date}, e ${/^(meia-noite|meio-dia)/.test(time) ? "é" : "são"} ${time}.`];
+  for (const b of birthdays) {
+    parts.push(b.who ? `Não se esqueça: hoje é aniversário ${ofWhom(b.who)}.` : "E hoje é o seu aniversário! Meus parabéns, senhor.");
+  }
   const w = weather?.data;
   if (w?.day || w?.current) {
     const now_ = w.current ? `agora faz ${w.current.temp} graus, com ${w.current.words}. ` : "";
@@ -290,10 +296,10 @@ export function buildBriefing(now = new Date(), { weather = null, news = null } 
 }
 
 /** Looks up the weather and the news (in parallel) and builds the briefing. */
-export async function briefing({ city = "", now = new Date(), fetchImpl = fetch } = {}) {
+export async function briefing({ city = "", now = new Date(), fetchImpl = fetch, name = "", birthdays = [] } = {}) {
   const [weather, news] = await Promise.all([
     lookup({ kind: "weather", city: city || "São Paulo", day: 0 }, { fetchImpl }),
     lookup({ kind: "news" }, { fetchImpl }),
   ]);
-  return buildBriefing(now, { weather, news });
+  return buildBriefing(now, { weather, news, name, birthdays });
 }
