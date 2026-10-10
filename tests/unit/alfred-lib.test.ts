@@ -103,7 +103,7 @@ test("AI voice: off by default, OpenAI direct when OPENAI_API_KEY is set", async
 
   const req = buildTtsRequest(config, "Pois não.", "ash");
   assert.equal(req.url, OPENAI_TTS_URL);
-  assert.equal(req.apiKey, "sk-test");
+  assert.equal(req.headers.authorization, "Bearer sk-test");
   assert.deepEqual(req.body, {
     model: "gpt-4o-mini-tts",
     input: "Pois não.",
@@ -134,8 +134,50 @@ test("AI voice through OmniRoute uses its key and speed for tts-1 models", async
   assert.deepEqual(ttsVoices(config), []);
   const req = buildTtsRequest(config, "Olá");
   assert.equal(req.url, "http://box:20128/v1/audio/speech");
-  assert.equal(req.apiKey, "omni");
+  assert.equal(req.headers.authorization, "Bearer omni");
   assert.equal(req.body.speed, 1.1);
   assert.equal(req.body.instructions, undefined);
   assert.equal(loadConfig({ ALFRED_TTS_PROVIDER: "omniroute" }).ttsProvider, "", "no model → off");
+});
+
+test("ElevenLabs voice: the Fabio voice by default, preferred over OpenAI, key in xi-api-key", async () => {
+  const { buildTtsRequest, ttsLabel, ttsVoices, validateTtsBody, ELEVENLABS_DEFAULT_VOICE } = await import(
+    "../../contrib/alfred/lib.mjs"
+  );
+  const config = loadConfig({ ELEVENLABS_API_KEY: "sk_eleven", OPENAI_API_KEY: "sk-openai" });
+  assert.equal(config.ttsProvider, "elevenlabs");
+  assert.equal(config.ttsVoice, ELEVENLABS_DEFAULT_VOICE);
+  assert.equal(config.ttsModel, "eleven_v4_turbo");
+  assert.equal(ttsLabel(config), "Fabio (ElevenLabs)");
+  assert.deepEqual(ttsVoices(config), [], "only the configured voice");
+  assert.equal(validateTtsBody({ text: "Oi", voice: "onyx" }, config).voice, ELEVENLABS_DEFAULT_VOICE);
+  const req = buildTtsRequest(config, "Pois não, senhor.");
+  assert.equal(req.url, `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_DEFAULT_VOICE}?output_format=mp3_44100_128`);
+  assert.equal(req.headers["xi-api-key"], "sk_eleven");
+  assert.equal(req.headers.authorization, undefined, "the ElevenLabs key never goes to another header");
+  assert.equal(req.body.text, "Pois não, senhor.");
+  assert.equal(req.body.model_id, "eleven_v4_turbo");
+  assert.equal(req.pcmRate, 0);
+  const wav = buildTtsRequest(config, "Oi", undefined, "wav", "eleven_flash_v2_5");
+  assert.match(wav.url, /output_format=pcm_24000$/, "WAV needs a higher plan: raw PCM, wrapped locally");
+  assert.equal(wav.pcmRate, 24000);
+  assert.equal(wav.body.model_id, "eleven_flash_v2_5");
+  // forced OpenAI, odd values ignored
+  assert.equal(loadConfig({ ELEVENLABS_API_KEY: "k", OPENAI_API_KEY: "o", ALFRED_TTS_PROVIDER: "openai" }).ttsProvider, "openai");
+  assert.equal(loadConfig({ ALFRED_TTS_PROVIDER: "elevenlabs" }).ttsProvider, "", "no key → off");
+  const odd = loadConfig({ ELEVENLABS_API_KEY: "k", ALFRED_ELEVENLABS_VOICE: "../x", ALFRED_ELEVENLABS_MODEL: "a b" });
+  assert.equal(odd.ttsVoice, ELEVENLABS_DEFAULT_VOICE);
+  assert.equal(odd.ttsModel, "eleven_v4_turbo");
+  assert.equal(loadConfig({ ELEVENLABS_API_KEY: "k", ALFRED_TTS_SPEED: "3" }).ttsSpeed, 1, "ElevenLabs speed is 0.7–1.2");
+});
+
+test("pcmToWav writes a valid 16-bit mono WAV header", async () => {
+  const { pcmToWav } = await import("../../contrib/alfred/lib.mjs");
+  const wav = pcmToWav(Buffer.alloc(480), 24000);
+  assert.equal(wav.length, 44 + 480);
+  assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+  assert.equal(wav.toString("ascii", 8, 12), "WAVE");
+  assert.equal(wav.readUInt32LE(24), 24000);
+  assert.equal(wav.readUInt16LE(34), 16);
+  assert.equal(wav.readUInt32LE(40), 480);
 });

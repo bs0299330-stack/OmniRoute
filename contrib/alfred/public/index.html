@@ -334,7 +334,7 @@
 
       function voiceLabel() {
         if (voiceSettings.engine === "neural" && ttsAvailable) {
-          return "IA · " + (voiceSettings.aiVoice || tts?.voice || "");
+          return "IA · " + (tts?.voices?.length ? voiceSettings.aiVoice || tts.voice : tts?.label || tts?.voice || "");
         }
         return "Navegador";
       }
@@ -956,7 +956,11 @@
           const aiSelect = $("aiVoice");
           aiSelect.innerHTML = "";
           for (const v of tts?.voices ?? []) aiSelect.add(new Option(v === tts.voice ? v + " (padrão)" : v, v));
-          if (ttsAvailable && !store.get("voice:v2", null)) saveVoice({ engine: "neural" });
+          // Uma voz de IA nova (ex.: a chave do ElevenLabs acabou de entrar) passa a ser a voz do Alfred.
+          if (ttsAvailable && (!store.get("voice:v2", null) || store.get("ttsProvider", "") !== tts.provider)) {
+            saveVoice({ engine: "neural" });
+          }
+          store.set("ttsProvider", tts?.provider || "");
           if (!ttsAvailable && voiceSettings.engine === "neural") saveVoice({ engine: "browser" });
           syncVoiceUi();
         })

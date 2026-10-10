@@ -269,6 +269,20 @@ converse por voz pelo site.
 
 ### A voz do Alfred
 
+**Voz do Fabio em tudo (ElevenLabs):** a voz "Fabio Oliveira Deep Portuguese" da biblioteca do
+[ElevenLabs](https://elevenlabs.io) fala todas as respostas. Ela precisa de **plano pago** no
+ElevenLabs (o Starter basta; no grátis as vozes da biblioteca não saem pela API) e de uma chave:
+
+1. Em <https://elevenlabs.io/app/settings/api-keys>, clique em **Create API Key**, deixe o acesso a
+   **Text to Speech** ligado e copie a chave.
+2. Rode o instalador de novo e responda **S** em "Colocar a chave do ElevenLabs agora?". Ou coloque
+   a chave em `ELEVENLABS_API_KEY=` no `alfred.env`.
+
+O Alfred usa o modelo `eleven_v4_turbo` (rápido e expressivo) e, se a conta recusar esse modelo,
+passa sozinho para o `eleven_flash_v2_5`. Se a chave, o plano ou os créditos derem problema, a
+janela preta explica o motivo e as respostas saem na voz do navegador. Com a chave, essa voz tem
+prioridade sobre a da OpenAI (`ALFRED_TTS_PROVIDER=openai` força a OpenAI).
+
 **Voz de IA (recomendado):** coloque a sua chave da OpenAI no `alfred.env`:
 
 ```bash
@@ -370,9 +384,12 @@ ele envia sozinho.
 | `ALFRED_PORT`          | `20140`                      | Porta                                            |
 | `ALFRED_TOKEN`         | —                            | Exige `Authorization: Bearer` nas rotas `/api/*` |
 | `ALFRED_TUNNEL`        | —                            | `1` = o mesmo que `--tunel` (link para o celular) |
+| `ELEVENLABS_API_KEY`   | —                            | Voz do Fabio (ElevenLabs) em todas as respostas  |
+| `ALFRED_ELEVENLABS_VOICE` | `Dps47AVoFamqqkDShRDS` (Fabio) | Outra voz do ElevenLabs (ID)                 |
+| `ALFRED_ELEVENLABS_MODEL` | `eleven_v4_turbo`         | Modelo de voz do ElevenLabs                      |
 | `OPENAI_API_KEY`       | —                            | Liga a voz de IA da OpenAI (gpt-4o-mini-tts)     |
 | `ALFRED_TTS_VOICE`     | `onyx`                       | Voz padrão (OpenAI: onyx, ash, echo, cedar…)     |
-| `ALFRED_TTS_PROVIDER`  | automático                   | `openai`, `omniroute` ou `off`                   |
+| `ALFRED_TTS_PROVIDER`  | automático                   | `elevenlabs`, `openai`, `omniroute` ou `off`     |
 | `ALFRED_TTS_MODEL`     | `gpt-4o-mini-tts` (OpenAI)   | Modelo de voz (obrigatório com `omniroute`)      |
 | `ALFRED_TTS_SPEED`     | `1`                          | Velocidade, só para `tts-1`/`tts-1-hd`           |
 | `ALFRED_TTS_INSTRUCTIONS` | mordomo refinado          | Direção de estilo do `gpt-4o-mini-tts`           |

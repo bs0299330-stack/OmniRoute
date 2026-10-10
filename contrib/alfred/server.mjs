@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BRAIN_LABELS, BrainError, detectBrainInfo, streamReply } from "./brain.mjs";
 import {
+  ELEVENLABS_FALLBACK_MODEL,
   buildPhoneLink,
   buildTtsRequest,
   buildTunnelArgs,
@@ -23,6 +24,7 @@ import {
   isAuthorized,
   loadConfig,
   statusLabel,
+  ttsLabel,
   ttsVoices,
   validateChatBody,
   validateTtsBody,
@@ -110,21 +112,27 @@ async function handleTts(req, res) {
   const check = validateTtsBody(body, config);
   if (!check.ok) return sendJson(res, 400, { error: check.error });
 
-  const tts = buildTtsRequest(config, check.text, check.voice);
   const controller = new AbortController();
   res.on("close", () => controller.abort());
   const timer = setTimeout(() => controller.abort(), 30000);
+  const call = (model) => {
+    const tts = buildTtsRequest(config, check.text, check.voice, "mp3", model);
+    return fetch(tts.url, { method: "POST", headers: tts.headers, body: JSON.stringify(tts.body), signal: controller.signal });
+  };
   let upstream;
   try {
-    upstream = await fetch(tts.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(tts.apiKey ? { authorization: `Bearer ${tts.apiKey}` } : {}),
-      },
-      body: JSON.stringify(tts.body),
-      signal: controller.signal,
-    });
+    upstream = await call(config.ttsModel);
+    // The account may not offer the default ElevenLabs model yet: switch to the fallback for good.
+    if (!upstream.ok && config.ttsProvider === "elevenlabs" && config.ttsModel !== ELEVENLABS_FALLBACK_MODEL) {
+      const detail = await upstream.text().catch(() => "");
+      if ([400, 404, 422].includes(upstream.status) && /model/i.test(detail)) {
+        console.warn(`[alfred] ElevenLabs recusou o modelo ${config.ttsModel}; usando ${ELEVENLABS_FALLBACK_MODEL}.`);
+        config.ttsModel = ELEVENLABS_FALLBACK_MODEL;
+        upstream = await call(config.ttsModel);
+      } else {
+        upstream = new Response(detail, { status: upstream.status });
+      }
+    }
   } catch (err) {
     clearTimeout(timer);
     if (!controller.signal.aborted) console.error("[alfred] TTS unreachable:", err?.message);
@@ -132,7 +140,10 @@ async function handleTts(req, res) {
   }
   if (!upstream.ok || !upstream.body) {
     clearTimeout(timer);
-    console.error("[alfred] TTS HTTP", upstream.status, await upstream.text().catch(() => ""));
+    const detail = await upstream.text().catch(() => "");
+    console.error("[alfred] TTS HTTP", upstream.status, detail.slice(0, 500));
+    const hint = ttsFailureHint(upstream.status, detail);
+    if (hint) console.error(`   ⚠️  ${hint}`);
     return sendJson(res, 502, { error: `A voz de IA falhou (${upstream.status}).` });
   }
   res.writeHead(200, {
@@ -147,6 +158,19 @@ async function handleTts(req, res) {
     clearTimeout(timer);
     res.end();
   }
+}
+
+/** A plain explanation for the black window when the AI voice fails. */
+function ttsFailureHint(status, detail) {
+  if (config.ttsProvider !== "elevenlabs") return "";
+  if (/quota|credit/i.test(detail)) return "Acabaram os créditos do ElevenLabs neste mês. As respostas saem na voz do navegador.";
+  if (status === 402 || /paid|subscription|upgrade|library voice|free users/i.test(detail)) {
+    return "O ElevenLabs só libera a voz do Fabio (Voice Library) em plano pago. Assine o Starter em elevenlabs.io.";
+  }
+  if (status === 401 || status === 403) {
+    return "O ElevenLabs recusou a chave (ELEVENLABS_API_KEY). Confira se copiou a chave inteira e se ela tem acesso a Text to Speech.";
+  }
+  return "";
 }
 
 async function handleChat(req, res) {
@@ -223,7 +247,7 @@ const server = createServer(async (req, res) => {
         model: { claude: "Claude Code", openai: config.openaiModel, gemini: config.geminiModel, local: config.localModel }[brain] ?? config.model,
         auth: !!config.accessToken,
         tts: config.ttsProvider
-          ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config) }
+          ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config), label: ttsLabel(config) }
           : null,
       });
     }
@@ -343,8 +367,8 @@ server.listen(config.port, config.host, () => {
   }
   console.log(
     config.ttsProvider
-      ? `   voz de IA: ${config.ttsProvider === "openai" ? "OpenAI" : "OmniRoute"} ${config.ttsModel} (voz "${config.ttsVoice}")`
-      : "   voz: a do navegador (defina OPENAI_API_KEY para a voz de IA)"
+      ? `   voz de IA: ${ttsLabel(config)} — modelo ${config.ttsModel}`
+      : "   voz: a do navegador (defina ELEVENLABS_API_KEY ou OPENAI_API_KEY para a voz de IA)"
   );
   if (config.host !== "127.0.0.1" && config.host !== "localhost" && !config.accessToken) {
     console.warn("   ⚠️  Exposto na rede sem ALFRED_TOKEN — defina um token de acesso.");

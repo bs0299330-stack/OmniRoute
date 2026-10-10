@@ -234,3 +234,72 @@ test("the server serves the recordings and nothing outside public/frases", async
     child.kill();
   }
 });
+
+test("the server speaks through ElevenLabs and falls back to another model when the account refuses it", async () => {
+  const { spawn } = await import("node:child_process");
+  const { createServer } = await import("node:http");
+  const seen: { url?: string; key?: string; model?: string }[] = [];
+  const eleven = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      const body = JSON.parse(raw);
+      seen.push({ url: req.url, key: req.headers["xi-api-key"] as string, model: body.model_id });
+      if (body.model_id === "eleven_v4_turbo") {
+        res.writeHead(422, { "content-type": "application/json" });
+        return res.end('{"detail":{"status":"invalid_model","message":"model_id not available"}}');
+      }
+      res.writeHead(200, { "content-type": "audio/mpeg" });
+      res.end(Buffer.from("ID3fake-mp3"));
+    });
+  });
+  await new Promise<void>((resolve) => eleven.listen(0, "127.0.0.1", () => resolve()));
+  const elevenPort = (eleven.address() as { port: number }).port;
+  const port = 30000 + ((process.pid + 7) % 20000);
+  const child = spawn(process.execPath, ["contrib/alfred/server.mjs"], {
+    env: {
+      ...process.env,
+      ALFRED_PORT: String(port),
+      ALFRED_BRAIN: "gemini",
+      GEMINI_API_KEY: "test",
+      ALFRED_TOKEN: "",
+      OPENAI_API_KEY: "",
+      ELEVENLABS_API_KEY: "sk_test_eleven",
+      ALFRED_ELEVENLABS_URL: `http://127.0.0.1:${elevenPort}/v1/text-to-speech`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("server did not start")), 10_000);
+      child.stdout.on("data", (d) => {
+        if (String(d).includes(`:${port}`)) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+    const base = `http://127.0.0.1:${port}`;
+    const health = await (await fetch(`${base}/api/health`)).json();
+    assert.equal(health.tts.provider, "elevenlabs");
+    assert.equal(health.tts.label, "Fabio (ElevenLabs)");
+    const speak = () =>
+      fetch(`${base}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Boa noite, senhor." }) });
+    const first = await speak();
+    assert.equal(first.status, 200);
+    assert.equal(Buffer.from(await first.arrayBuffer()).toString(), "ID3fake-mp3");
+    const second = await speak();
+    await second.arrayBuffer();
+    assert.deepEqual(
+      seen.map((s) => s.model),
+      ["eleven_v4_turbo", "eleven_flash_v2_5", "eleven_flash_v2_5"],
+      "falls back once and keeps the working model"
+    );
+    assert.ok(seen.every((s) => s.key === "sk_test_eleven"));
+    assert.match(seen[0].url ?? "", /^\/v1\/text-to-speech\/Dps47AVoFamqqkDShRDS\?output_format=mp3_44100_128$/);
+  } finally {
+    child.kill();
+    eleven.closeAllConnections();
+    eleven.close();
+  }
+});

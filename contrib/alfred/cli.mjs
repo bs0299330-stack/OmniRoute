@@ -21,6 +21,8 @@ import {
   OPENAI_STT_URL,
   WINDOWS_PLAYER_SCRIPT,
   buildTtsRequest,
+  pcmToWav,
+  ttsLabel,
   loadConfig,
   soxRecordArgs,
   statusLabel,
@@ -82,13 +84,14 @@ class Voice {
     const tts = buildTtsRequest(config, text, config.ttsVoice, "wav");
     const res = await fetch(tts.url, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${tts.apiKey}` },
+      headers: tts.headers,
       body: JSON.stringify(tts.body),
       signal: AbortSignal.timeout(30000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const file = join(await tempDir(), `fala-${process.pid}-${this.counter++}.wav`);
-    await writeFile(file, Buffer.from(await res.arrayBuffer()));
+    const audio = Buffer.from(await res.arrayBuffer());
+    await writeFile(file, tts.pcmRate ? pcmToWav(audio, tts.pcmRate) : audio);
     return file;
   }
 
@@ -383,7 +386,7 @@ function banner() {
   const line = cyan("  ─────────────────────────────────────────────");
   console.log(`\n${line}\n${glow("   ◢◤  A L F R E D")}  ${dim("· assistente pessoal")}\n${line}`);
   const vozInfo = voice.enabled
-    ? `IA (${config.ttsProvider === "openai" ? "OpenAI" : "OmniRoute"} · ${config.ttsVoice})`
+    ? `IA (${ttsLabel(config)})`
     : config.ttsProvider
       ? "sem player de áudio"
       : "desligada (defina OPENAI_API_KEY)";
@@ -425,7 +428,7 @@ async function diagnose() {
   );
   console.log(
     `  ${mark(voice.enabled)} Voz de IA: ${
-      voice.enabled ? `${config.ttsVoice} (${config.ttsProvider})` : config.ttsProvider ? "sem player de áudio" : "desligada"
+      voice.enabled ? ttsLabel(config) : config.ttsProvider ? "sem player de áudio" : "desligada"
     }`
   );
   if (!config.ttsProvider) console.log(dim("      → Opcional: OPENAI_API_KEY no alfred.env liga a voz de IA."));

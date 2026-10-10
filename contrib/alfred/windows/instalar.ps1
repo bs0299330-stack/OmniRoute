@@ -238,6 +238,24 @@ switch ($choice) {
   "3" { Set-ClaudeBrain }
 }
 
+# Voz do Fabio (ElevenLabs) em todas as respostas: precisa de plano pago e de uma chave.
+if (-not (Get-AlfredEnv $EnvFile "ELEVENLABS_API_KEY")) {
+  Say ""
+  Say "  Voz do Fabio (ElevenLabs) em todas as respostas: precisa de plano pago e de uma chave." "Yellow"
+  $answer = Read-Host "  Colocar a chave do ElevenLabs agora? (S/N)"
+  if ($answer -match "^[sSyY]") {
+    Say "  No site que vai abrir: Create API Key (crie com acesso a Text to Speech) e copie a chave."
+    Start-Process "https://elevenlabs.io/app/settings/api-keys"
+    $key = (Read-Host "  Cole a chave do ElevenLabs (botao direito do mouse) e aperte Enter").Trim()
+    if ($key -match '^[A-Za-z0-9_.\-]{20,200}$') {
+      Set-AlfredEnv $EnvFile "ELEVENLABS_API_KEY" $key
+      Say "        Pronto: o Alfred agora fala com a voz do Fabio." "Green"
+    } elseif ($key) {
+      Say "  Isso nao parece uma chave do ElevenLabs. Rode o instalador de novo e cole a chave inteira." "Red"
+    }
+  }
+}
+
 # 3. Atalho e abertura
 Say "  [3/3] Criando o atalho 'Alfred' na Area de Trabalho..."
 $launcher = Join-Path $Dest "windows\iniciar-alfred.cmd"

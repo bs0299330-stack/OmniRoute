@@ -49,6 +49,14 @@ export const DEFAULT_TTS_INSTRUCTIONS = [
 // Gemini's OpenAI-compatible endpoint (chat/completions, models).
 export const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 export const OPENAI_TTS_URL = "https://api.openai.com/v1/audio/speech";
+
+// ElevenLabs text-to-speech. The default voice is "Fabio Oliveira Deep Portuguese" from the
+// ElevenLabs Voice Library (deep, mature pt-BR); Voice Library voices need a paid plan on the API.
+export const ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech";
+export const ELEVENLABS_DEFAULT_VOICE = "Dps47AVoFamqqkDShRDS";
+export const ELEVENLABS_DEFAULT_MODEL = "eleven_v4_turbo"; // most expressive real-time model
+export const ELEVENLABS_FALLBACK_MODEL = "eleven_flash_v2_5"; // used if the account refuses the default
+const ELEVENLABS_ID = /^[A-Za-z0-9_]{1,64}$/;
 // Voices accepted by OpenAI TTS; marin/cedar are the newest, gpt-4o-mini-tts only.
 export const OPENAI_TTS_VOICES = Object.freeze([
   "onyx",
@@ -117,17 +125,35 @@ export function loadConfig(env = process.env) {
 }
 
 /**
- * AI voice: "openai" (direct, OPENAI_API_KEY) or "omniroute" (/v1/audio/speech with
- * ALFRED_TTS_MODEL). Picked automatically unless ALFRED_TTS_PROVIDER says otherwise; "" = off.
+ * AI voice: "elevenlabs" (ELEVENLABS_API_KEY), "openai" (direct, OPENAI_API_KEY) or "omniroute"
+ * (/v1/audio/speech with ALFRED_TTS_MODEL). Picked automatically unless ALFRED_TTS_PROVIDER says
+ * otherwise; "" = off.
  */
 export function resolveTts(env = process.env) {
   const openaiKey = env.OPENAI_API_KEY || "";
+  const elevenlabsKey = env.ELEVENLABS_API_KEY || "";
   let provider = (env.ALFRED_TTS_PROVIDER || "").toLowerCase();
-  if (!["openai", "omniroute", "off"].includes(provider)) {
-    provider = openaiKey ? "openai" : env.ALFRED_TTS_MODEL ? "omniroute" : "";
+  if (!["elevenlabs", "openai", "omniroute", "off"].includes(provider)) {
+    provider = elevenlabsKey ? "elevenlabs" : openaiKey ? "openai" : env.ALFRED_TTS_MODEL ? "omniroute" : "";
   }
   if (provider === "off" || (provider === "openai" && !openaiKey)) provider = "";
+  if (provider === "elevenlabs" && !elevenlabsKey) provider = "";
   if (provider === "omniroute" && !env.ALFRED_TTS_MODEL) provider = "";
+  if (provider === "elevenlabs") {
+    const voice = env.ALFRED_ELEVENLABS_VOICE || "";
+    const model = env.ALFRED_ELEVENLABS_MODEL || "";
+    return {
+      ttsProvider: provider,
+      ttsModel: ELEVENLABS_ID.test(model) ? model : ELEVENLABS_DEFAULT_MODEL,
+      ttsVoice: ELEVENLABS_ID.test(voice) ? voice : ELEVENLABS_DEFAULT_VOICE,
+      // ElevenLabs accepts 0.7–1.2
+      ttsSpeed: parseNumber(env.ALFRED_TTS_SPEED, 1, 0.7, 1.2),
+      ttsInstructions: "",
+      openaiKey,
+      elevenlabsKey,
+      elevenlabsUrl: (env.ALFRED_ELEVENLABS_URL || ELEVENLABS_TTS_URL).replace(/\/+$/, ""),
+    };
+  }
   const model = env.ALFRED_TTS_MODEL || (provider === "openai" ? "gpt-4o-mini-tts" : "");
   return {
     ttsProvider: provider,
@@ -136,7 +162,37 @@ export function resolveTts(env = process.env) {
     ttsSpeed: parseNumber(env.ALFRED_TTS_SPEED, 1, 0.25, 4),
     ttsInstructions: env.ALFRED_TTS_INSTRUCTIONS || DEFAULT_TTS_INSTRUCTIONS,
     openaiKey,
+    elevenlabsKey,
   };
+}
+
+/** A short name for the AI voice, for the menu and the terminal. */
+export function ttsLabel(config) {
+  if (config.ttsProvider === "elevenlabs") {
+    return config.ttsVoice === ELEVENLABS_DEFAULT_VOICE ? "Fabio (ElevenLabs)" : `ElevenLabs · ${config.ttsVoice}`;
+  }
+  if (config.ttsProvider === "openai") return `OpenAI · ${config.ttsVoice}`;
+  if (config.ttsProvider === "omniroute") return `OmniRoute · ${config.ttsVoice}`;
+  return "";
+}
+
+/** Adds a 44-byte WAV header to raw 16-bit mono PCM (ElevenLabs sends WAV only on higher plans). */
+export function pcmToWav(pcm, sampleRate) {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
 }
 
 /** Voices the page may pick from (empty list = only the configured voice). */
@@ -238,8 +294,26 @@ export function validateTtsBody(body, config) {
   return { ok: true, text, voice };
 }
 
-/** URL, headers and body for one TTS call. */
-export function buildTtsRequest(config, text, voice = config.ttsVoice, format = "mp3") {
+/**
+ * URL, headers and body for one TTS call. `format` is "mp3" or "wav"; `pcmRate` is set when the
+ * reply is raw PCM that the caller must wrap with pcmToWav().
+ */
+export function buildTtsRequest(config, text, voice = config.ttsVoice, format = "mp3", model = config.ttsModel) {
+  if (config.ttsProvider === "elevenlabs") {
+    const pcmRate = format === "wav" ? 24000 : 0;
+    const output = pcmRate ? `pcm_${pcmRate}` : "mp3_44100_128";
+    return {
+      url: `${config.elevenlabsUrl}/${encodeURIComponent(voice)}?output_format=${output}`,
+      headers: { "content-type": "application/json", "xi-api-key": config.elevenlabsKey },
+      body: {
+        text,
+        model_id: model,
+        language_code: "pt",
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: config.ttsSpeed },
+      },
+      pcmRate,
+    };
+  }
   const steerable = /gpt-4o.*tts/i.test(config.ttsModel);
   const body = {
     model: config.ttsModel,
@@ -249,10 +323,10 @@ export function buildTtsRequest(config, text, voice = config.ttsVoice, format = 
     // gpt-4o-mini-tts takes its pace from `instructions`; tts-1/tts-1-hd take `speed`.
     ...(steerable ? { instructions: config.ttsInstructions } : { speed: config.ttsSpeed }),
   };
-  if (config.ttsProvider === "openai") {
-    return { url: OPENAI_TTS_URL, apiKey: config.openaiKey, body };
-  }
-  return { url: `${config.baseUrl}/audio/speech`, apiKey: config.apiKey, body };
+  const apiKey = config.ttsProvider === "openai" ? config.openaiKey : config.apiKey;
+  const headers = { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) };
+  if (config.ttsProvider === "openai") return { url: OPENAI_TTS_URL, headers, body, pcmRate: 0 };
+  return { url: `${config.baseUrl}/audio/speech`, headers, body, pcmRate: 0 };
 }
 
 // ---------- Brains ----------
