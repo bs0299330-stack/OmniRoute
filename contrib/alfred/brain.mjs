@@ -11,7 +11,10 @@ import {
   claudeCandidates,
   createSseParser,
   createClaudeStreamParser,
+  liteWebSystemPrompt,
+  usesLiteWeb,
 } from "./lib.mjs";
+import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
 
 export const BRAIN_LABELS = {
   omniroute: "OmniRoute",
@@ -121,8 +124,8 @@ const KEY_REFUSED = {
   openai: "A OpenAI recusou a chave (OPENAI_API_KEY).",
 };
 
-async function* streamChatCompletions(config, brain, messages, signal) {
-  const call = buildChatCall(config, brain, messages);
+async function* streamChatCompletions(config, brain, messages, signal, found = null) {
+  const call = buildChatCall(config, brain, messages, new Date(), { found });
   let res;
   try {
     res = await fetch(call.url, {
@@ -274,8 +277,23 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     );
   arm();
   try {
+    let found = null;
+    // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"
+    // in free public services first, and hand the result to the brain.
+    const wanted = config.web !== "off" && usesLiteWeb(config, brain) ? detectLookup(messages[messages.length - 1]?.content) : null;
+    if (wanted) {
+      yield { status: { tool: "search", detail: lookupLabel(wanted, config) } };
+      found = await lookup(wanted, { city: config.city });
+      if (ctl.signal.aborted) {
+        if (timedOut) throw timeoutError();
+        return;
+      }
+      arm();
+    }
     const inner =
-      brain === "claude" ? streamClaude(config, messages, ctl.signal) : streamChatCompletions(config, brain, messages, ctl.signal);
+      brain === "claude"
+        ? streamClaude(config, messages, ctl.signal)
+        : streamChatCompletions(config, brain, messages, ctl.signal, found);
     for await (const piece of inner) {
       arm();
       yield piece;
@@ -288,6 +306,35 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     clearTimeout(timer);
     signal?.removeEventListener("abort", forward);
   }
+}
+
+/**
+ * Keeps the local model loaded in memory, so no answer waits for it to load (Ollama unloads an
+ * idle model after 5 minutes), and its cache primed with Alfred's system prompt, so the first
+ * answer does not wait for the model to read it either. Refreshes every 4 minutes; returns a stop
+ * function.
+ */
+export function keepLocalWarm(config, { everyMs = 4 * 60_000 } = {}) {
+  const base = config.localUrl.replace(/\/v1$/, "");
+  const ping = () =>
+    fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: config.localModel,
+        messages: [{ role: "system", content: liteWebSystemPrompt(config) }],
+        stream: false,
+        keep_alive: "30m",
+        options: { num_predict: 1 },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    })
+      .then((res) => res.body?.cancel())
+      .catch(() => {});
+  ping();
+  const timer = setInterval(ping, everyMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 // ---------- Diagnóstico ----------

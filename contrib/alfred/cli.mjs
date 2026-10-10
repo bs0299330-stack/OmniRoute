@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, checkBrains, detectBrainInfo, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, checkBrains, detectBrainInfo, keepLocalWarm, streamReply } from "./brain.mjs";
 import {
   LINUX_PLAYERS,
   OPENAI_STT_URL,
@@ -447,6 +447,7 @@ async function main() {
     process.exit(ok ? 0 : 1);
   }
   ({ brain, found: brainFound } = await detectBrainInfo(config));
+  if (brainFound && brain === "local") keepLocalWarm(config); // the model stays loaded
   banner();
 
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: cyan("  VOCÊ  › ") });

@@ -261,7 +261,7 @@ test("Gemini brain: free key, OpenAI-compatible endpoint, no web, quick thinking
   assert.equal(call.body.stream, true);
   assert.equal(call.body.web_search_options, undefined);
   assert.doesNotMatch(call.body.messages[0].content, /Você tem acesso à internet/);
-  assert.match(call.body.messages[0].content, /não tem acesso à internet/);
+  assert.match(call.body.messages[0].content, /não pesquisa na internet por conta própria/);
   assert.equal(buildChatCall(loadConfig({ ALFRED_GEMINI_MODEL: "gemini-3.8-flash" }), "gemini", history).body.model, "gemini-3.8-flash");
 });
 
@@ -328,7 +328,7 @@ test("local brain: Ollama on this PC, no key, Gemma 3 by default", async () => {
   assert.equal(call.apiKey, "", "no key is ever sent");
   assert.equal(call.body.model, "gemma3:4b");
   assert.equal(call.body.stream, true);
-  assert.match(call.body.messages[0].content, /não tem acesso à internet/);
+  assert.match(call.body.messages[0].content, /não pesquisa na internet por conta própria/);
   const custom = loadConfig({ ALFRED_LOCAL_MODEL: "gemma3:1b", ALFRED_LOCAL_URL: "http://127.0.0.1:9999/v1/" });
   assert.equal(buildChatCall(custom, "local", history).url, "http://127.0.0.1:9999/v1/chat/completions");
   assert.equal(buildChatCall(custom, "local", history).body.model, "gemma3:1b");
@@ -376,4 +376,79 @@ test("local brain: auto picks a running Ollama; clear messages when it is off or
   const off = loadConfig({ ...env, ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1" });
   await assert.rejects(collect(off), (err: unknown) => err instanceof BrainError && /Abra o Ollama/.test((err as Error).message));
   assert.equal((await detectBrainInfo(loadConfig({ ...env, ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1", GEMINI_API_KEY: "g" }))).brain, "gemini");
+});
+
+test("brains without their own web get the time and lookups in a [Contexto] block, not in the system prompt", async () => {
+  const { contextBlock, LOCAL_HISTORY_MESSAGES, LOCAL_MAX_TOKENS } = await import("../../contrib/alfred/lib.mjs");
+  const at = (h: number, m: number) => new Date(2026, 9, 10, h, m);
+  const long = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", content: `m${i}` }));
+  long.push({ role: "user", content: "Quanto está o dólar?" });
+  const config = loadConfig({});
+  const a = buildChatCall(config, "local", long, at(9, 15));
+  const b = buildChatCall(config, "local", long, at(9, 47));
+  assert.equal(a.body.messages[0].content, b.body.messages[0].content, "system prompt identical all day (cache-friendly)");
+  assert.doesNotMatch(a.body.messages[0].content, /09:15/);
+  assert.equal(a.body.messages.length, 1 + LOCAL_HISTORY_MESSAGES, "local keeps a short history");
+  assert.equal(a.body.max_tokens, LOCAL_MAX_TOKENS);
+  const last = a.body.messages[a.body.messages.length - 1].content;
+  assert.match(last, /^Quanto está o dólar\?\n\n\[Contexto: agora são 09:15\.\]$/);
+  const found = { source: "Open-Meteo", text: "hoje em Campinas: chuva" };
+  const withData = buildChatCall(config, "local", long, at(9, 15), { found });
+  assert.match(withData.body.messages.at(-1).content, /Buscado agora na internet \(fonte: Open-Meteo\): hoje em Campinas: chuva\./);
+  assert.equal(contextBlock(at(21, 5)), "[Contexto: agora são 21:05.]");
+  const gemini = buildChatCall(loadConfig({ GEMINI_API_KEY: "g" }), "gemini", long, at(9, 15), { found });
+  assert.equal(gemini.body.messages.length, 1 + long.length, "Gemini keeps the full history");
+  assert.match(gemini.body.messages.at(-1).content, /fonte: Open-Meteo/);
+});
+
+test("local brain + internet leve: says it is searching, looks up, then answers with the data in context", async () => {
+  const { createServer } = await import("node:http");
+  const { streamReply } = await import("../../contrib/alfred/brain.mjs");
+  let sent: { messages: { content: string }[]; max_tokens?: number } | null = null;
+  const ollama = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      sent = JSON.parse(raw);
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end('data: {"choices":[{"delta":{"content":"Amanhã chove, senhor."}}]}\n\ndata: [DONE]\n\n');
+    });
+  });
+  await new Promise<void>((resolve) => ollama.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = ollama.address() as { port: number };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const u = String(url);
+    if (u.startsWith("https://geocoding-api.open-meteo.com/")) {
+      return new Response(JSON.stringify({ results: [{ name: "Campinas", admin1: "São Paulo", latitude: 1, longitude: 2 }] }));
+    }
+    if (u.startsWith("https://api.open-meteo.com/")) {
+      return new Response(
+        JSON.stringify({
+          daily: { time: ["a", "b"], weather_code: [0, 63], temperature_2m_min: [18, 17], temperature_2m_max: [29, 24], precipitation_probability_max: [0, 90] },
+        })
+      );
+    }
+    return realFetch(url, init);
+  }) as typeof fetch;
+  process.env.ALFRED_QUIET = "1";
+  try {
+    const config = loadConfig({ ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1` });
+    const pieces: unknown[] = [];
+    for await (const p of streamReply(config, "local", [{ role: "user", content: "Alfred, vai chover amanhã em Campinas?" }])) pieces.push(p);
+    assert.deepEqual(pieces, [{ status: { tool: "search", detail: "clima em Campinas" } }, "Amanhã chove, senhor."]);
+    const last = sent!.messages.at(-1)!.content;
+    assert.match(last, /fonte: Open-Meteo\): amanhã em Campinas, São Paulo: chuva, mínima de 17 °C, máxima de 24 °C, chance de chuva de 90%/);
+    assert.equal(sent!.max_tokens, 300);
+    // ALFRED_WEB=off: no lookup at all
+    pieces.length = 0;
+    const off = loadConfig({ ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1`, ALFRED_WEB: "off" });
+    for await (const p of streamReply(off, "local", [{ role: "user", content: "vai chover amanhã em Campinas?" }])) pieces.push(p);
+    assert.deepEqual(pieces, ["Amanhã chove, senhor."]);
+    assert.doesNotMatch(sent!.messages.at(-1)!.content, /Buscado/);
+  } finally {
+    globalThis.fetch = realFetch;
+    ollama.closeAllConnections();
+    ollama.close();
+  }
 });

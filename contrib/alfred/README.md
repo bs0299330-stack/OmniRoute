@@ -139,8 +139,11 @@ download acontece só uma vez.
 
 - O Ollama abre sozinho com o Windows (ícone de lhama perto do relógio). Se o Alfred disser que
   não conseguiu falar com a IA do PC, abra o **Ollama** pelo menu Iniciar.
-- A primeira resposta depois de ligar o PC demora alguns segundos (o modelo carrega na memória).
-  Em PC sem placa de vídeo boa, as respostas saem mais devagar que nas IAs da internet.
+- **Rápido:** com o Alfred aberto, o modelo fica sempre carregado na memória (sem ele, o Ollama o
+  descarrega após 5 minutos parado) e já com as instruções do Alfred lidas. As instruções não
+  mudam ao longo do dia (a hora vai no fim da mensagem) e só as últimas 12 falas da conversa vão
+  para a IA, então ela começa a responder em 1 a 4 segundos num PC comum. Isso ocupa uns 3 GB de
+  memória enquanto o Alfred estiver aberto.
 - É uma IA bem menor que o Claude: ótima para conversa e perguntas simples, mais fraca em
   raciocínio longo. Ela **não pesquisa na internet**.
 - Outro modelo: `ollama pull <modelo>` no PowerShell e `ALFRED_LOCAL_MODEL=<modelo>` no
@@ -175,8 +178,22 @@ lista de links aparece no histórico, clicável, mas não é lida em voz alta.
 | Claude    | Ferramentas **WebSearch** e **WebFetch** do Claude Code, as únicas liberadas (só leitura)        |
 | OpenAI    | Modelo de pesquisa `gpt-5-search-api` (`ALFRED_OPENAI_SEARCH_MODEL`), que pesquisa a cada pergunta |
 | OmniRoute | Escolha um modelo que pesquisa sozinho, por exemplo `ALFRED_MODEL=perplexity/sonar`             |
-| Gemini    | Não pesquisa: a pesquisa do Google não faz parte do plano grátis                                |
-| IA do PC  | Não pesquisa: responde só com o que o modelo já sabe                                            |
+| Gemini    | **Internet leve** (abaixo): o Alfred busca antes e entrega o resultado ao Gemini                |
+| IA do PC  | **Internet leve** (abaixo): o Alfred busca antes e entrega o resultado à IA do PC               |
+
+**Internet leve (grátis, sem chave):** a IA do PC e o Gemini não pesquisam sozinhos. Para eles, o
+próprio Alfred reconhece quatro tipos de pergunta, busca a resposta em serviços públicos gratuitos
+e entrega à IA, que responde citando a fonte (`weblite.mjs`):
+
+| Pergunta                                   | Onde o Alfred busca                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| Dólar, euro, libra, bitcoin, cotação       | AwesomeAPI (ao vivo); reserva: ExchangeRate-API (do dia) e CoinGecko       |
+| Clima, chuva, temperatura (hoje, amanhã)   | Open-Meteo. Sem cidade na pergunta, usa `ALFRED_CITY` (padrão São Paulo)   |
+| Notícias, manchetes                        | Agência Brasil; reserva: g1                                                |
+| "Quem é / o que é / onde fica …"           | Wikipédia                                                                  |
+
+Outras perguntas vão direto para a IA, sem busca. Se o serviço não responder, o Alfred avisa que
+não conseguiu consultar, em vez de inventar. `ALFRED_WEB=off` desliga a internet leve também.
 
 `ALFRED_WEB=full` (padrão) pesquisa e lê páginas; `search` só pesquisa; `off` desliga a internet.
 **Cuidados:** cada pesquisa gasta um pouco mais do seu plano ou crédito, e respostas com pesquisa
@@ -375,6 +392,7 @@ ele envia sozinho.
 | `ALFRED_CLAUDE_MODEL`  | —                            | Modelo do Claude Code (`sonnet`, `opus`…)        |
 | `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI (sem internet) |
 | `ALFRED_WEB`           | `full`                       | Internet: `full`, `search` ou `off`             |
+| `ALFRED_CITY`          | São Paulo                    | Cidade do clima quando a pergunta não diz qual  |
 | `ALFRED_OPENAI_SEARCH_MODEL` | `gpt-5-search-api`     | Modelo da OpenAI com pesquisa na web            |
 | `ALFRED_STT_MODEL`     | `gpt-4o-mini-transcribe`     | Transcrição do microfone no terminal            |
 | `OMNIROUTE_URL`        | `http://localhost:20128/v1`  | Endpoint OpenAI-compatível do OmniRoute         |

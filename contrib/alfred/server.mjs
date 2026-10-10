@@ -14,7 +14,7 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, detectBrainInfo, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, detectBrainInfo, keepLocalWarm, streamReply } from "./brain.mjs";
 import {
   ELEVENLABS_FALLBACK_MODEL,
   buildPhoneLink,
@@ -49,9 +49,13 @@ let brainReady = null;
 
 let brainFound = true;
 
+let stopWarm = null;
+
 function getBrain() {
   brainReady ??= detectBrainInfo(config).then((info) => {
     brainFound = info.found;
+    // The local AI stays loaded, so answers never wait for the model to load.
+    if (info.found && info.brain === "local") stopWarm ??= keepLocalWarm(config);
     return (brain = info.brain);
   });
   return brainReady;

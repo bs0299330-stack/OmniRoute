@@ -16,11 +16,23 @@ export const WEB_PROMPT = [
   "informação, diga isso em uma frase.",
 ].join(" ");
 
-/** Added for brains that cannot reach the internet, so Alfred never guesses today's facts. */
+/**
+ * Added for brains that cannot search the web themselves (the local AI, Gemini's free tier). The
+ * server may look the answer up for them ("internet leve", weblite.mjs) and append it to the
+ * user's message in a [Contexto: …] block, together with the current time.
+ */
 export const NO_WEB_PROMPT = [
-  "Você não tem acesso à internet: para cotações, notícias, clima ou resultados de agora,",
-  "diga com elegância que não consegue consultar isso no momento, em vez de chutar.",
+  "Você não pesquisa na internet por conta própria. A mensagem do usuário pode terminar com um",
+  "bloco [Contexto: …] com a hora atual e informações buscadas agora na internet: use essas",
+  "informações para responder, cite a fonte numa frase curta (por exemplo: 'segundo o",
+  "Open-Meteo') e nunca leia nem mencione o bloco. Sem essas informações, para cotações,",
+  "notícias, clima ou resultados de agora, diga com elegância que não consegue consultar isso no",
+  "momento, em vez de chutar.",
 ].join(" ");
+
+// The local AI answers on the CPU: a shorter history and reply keep the first word quick.
+export const LOCAL_HISTORY_MESSAGES = 12;
+export const LOCAL_MAX_TOKENS = 300;
 
 export const DEFAULT_SYSTEM_PROMPT = [
   "Você é Alfred, um mordomo e assistente virtual pessoal: educado, prestativo, discreto",
@@ -28,6 +40,7 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "usuário fale em outro idioma. Suas respostas são lidas em voz alta, então seja",
   "conciso (de 1 a 4 frases, salvo quando pedirem detalhes), evite markdown, listas",
   "longas, emojis e blocos de código, e nunca invente fatos — diga quando não souber.",
+  "Trate o usuário por 'senhor'.",
 ].join(" ");
 
 // 20130 is taken by the 9Router embedded service and the Kiro MITM proxy.
@@ -120,6 +133,8 @@ export function loadConfig(env = process.env) {
       ? String(env.ALFRED_WEB).toLowerCase()
       : "full",
     sttModel: env.ALFRED_STT_MODEL || "",
+    // City for weather questions that name none ("vai chover hoje?").
+    city: env.ALFRED_CITY || "",
     ...resolveTts(env),
   };
 }
@@ -203,9 +218,12 @@ export function ttsVoices(config) {
   return voices;
 }
 
-export function buildSystemPrompt(config, now = new Date(), { web = false } = {}) {
-  const when = now.toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" });
-  const parts = [config.systemPrompt, `Data e hora atuais: ${when}.`];
+export function buildSystemPrompt(config, now = new Date(), { web = false, clock = true } = {}) {
+  // Without the clock the prompt stays the same all day, so a local model can reuse its cache.
+  const when = clock
+    ? `Data e hora atuais: ${now.toLocaleString("pt-BR", { dateStyle: "full", timeStyle: "short" })}.`
+    : `Data de hoje: ${now.toLocaleDateString("pt-BR", { dateStyle: "full" })}.`;
+  const parts = [config.systemPrompt, when];
   if (web) parts.push(WEB_PROMPT);
   if (config.userName) parts.push(`O nome do seu patrão é ${config.userName}.`);
   return parts.join(" ");
@@ -238,12 +256,28 @@ export function validateChatBody(body) {
   return { ok: true, messages: messages.slice(-MAX_HISTORY_MESSAGES) };
 }
 
-export function buildChatRequest(config, messages, now = new Date(), { web = false } = {}) {
+export function buildChatRequest(config, messages, now = new Date(), { web = false, clock = true } = {}) {
   return {
     model: config.model,
     stream: true,
-    messages: [{ role: "system", content: buildSystemPrompt(config, now, { web }) }, ...messages],
+    messages: [{ role: "system", content: buildSystemPrompt(config, now, { web, clock }) }, ...messages],
   };
+}
+
+/**
+ * The [Contexto: …] block appended to the user's last message for brains without their own web:
+ * the time (kept out of the system prompt so it stays cacheable) and what the server looked up.
+ */
+export function contextBlock(now = new Date(), found = null) {
+  const time = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const parts = [`agora são ${time}.`];
+  if (found?.text) parts.push(`Buscado agora na internet (fonte: ${found.source}): ${found.text}.`);
+  return `[Contexto: ${parts.join(" ")}]`;
+}
+
+function withContext(messages, now, found) {
+  const last = messages[messages.length - 1];
+  return [...messages.slice(0, -1), { ...last, content: `${last.content}\n\n${contextBlock(now, found)}` }];
 }
 
 /** OmniRoute models that search the web on their own (Perplexity sonar, *-search*, :online). */
@@ -334,15 +368,31 @@ export function buildTtsRequest(config, text, voice = config.ttsVoice, format = 
 export const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
 export const OPENAI_STT_URL = "https://api.openai.com/v1/audio/transcriptions";
 
-/** URL/key/body for an OpenAI-compatible streaming chat (OmniRoute, local, Gemini or OpenAI). */
-export function buildChatCall(config, brain, messages, now = new Date()) {
+/** The (all-day stable) system prompt of the brains without their own web. */
+export function liteWebSystemPrompt(config, now = new Date()) {
+  return `${buildSystemPrompt(config, now, { clock: false })} ${NO_WEB_PROMPT}`;
+}
+
+/** True for brains that cannot search the web themselves (they get the "internet leve"). */
+export function usesLiteWeb(config, brain) {
+  return brain === "local" || brain === "gemini";
+}
+
+/**
+ * URL/key/body for an OpenAI-compatible streaming chat (OmniRoute, local, Gemini or OpenAI).
+ * `found` is what the server looked up for brains without their own web (weblite.mjs).
+ */
+export function buildChatCall(config, brain, messages, now = new Date(), { found = null } = {}) {
   if (brain === "gemini" || brain === "local") {
-    // No web for either: Google Search grounding is not in Gemini's free tier, and the local
-    // model only knows what it was trained on.
-    const body = buildChatRequest(config, messages, now);
-    body.messages[0].content += ` ${NO_WEB_PROMPT}`;
+    // Neither searches by itself: Google Search grounding is not in Gemini's free tier, and the
+    // local model only knows what it was trained on. The time and any lookup ride in the last
+    // message, so the system prompt (and the local model's cache) stays the same all day.
+    const history = brain === "local" ? messages.slice(-LOCAL_HISTORY_MESSAGES) : messages;
+    const body = buildChatRequest(config, withContext(history, now, found), now, { clock: false });
+    body.messages[0].content = liteWebSystemPrompt(config, now);
     if (brain === "local") {
       body.model = config.localModel;
+      body.max_tokens = LOCAL_MAX_TOKENS;
       return { url: `${config.localUrl}/chat/completions`, apiKey: "", body };
     }
     body.model = config.geminiModel;

@@ -25,6 +25,7 @@ $Files = @(
   "cli.mjs",
   "lib.mjs",
   "server.mjs",
+  "weblite.mjs",
   "public/clap.mjs",
   "public/frases/boa-noite.mp3",
   "public/frases/boa-tarde.mp3",
