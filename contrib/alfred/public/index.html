@@ -226,7 +226,13 @@
           if (!res.ok) throw new Error("tts " + res.status);
           return res.blob();
         },
-        onError: () => setStatus("A voz de IA falhou nesta frase; usei a voz do navegador.", true),
+        // A voz de IA falhou (chave, plano ou créditos): sem aviso na tela, o resto da conversa sai
+        // na voz do navegador até o Alfred ser aberto de novo. O motivo aparece na janela preta.
+        onError: () => {
+          if (voiceSettings.engine !== "neural") return;
+          voiceSettings = { ...voiceSettings, engine: "browser" };
+          syncVoiceUi();
+        },
         onWord: () => orb.pulse(),
         onAudio: analyse,
       });

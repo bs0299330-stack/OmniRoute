@@ -303,3 +303,63 @@ test("the server speaks through ElevenLabs and falls back to another model when 
     eleven.close();
   }
 });
+
+test("a refused ElevenLabs plan turns the AI voice off after the first sentence (one error, not one per sentence)", async () => {
+  const { spawn } = await import("node:child_process");
+  const { createServer } = await import("node:http");
+  let calls = 0;
+  const eleven = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      calls++;
+      res.writeHead(402, { "content-type": "application/json" });
+      res.end('{"detail":{"status":"payment_required","message":"Free users cannot use library voices via the API."}}');
+    });
+  });
+  await new Promise<void>((resolve) => eleven.listen(0, "127.0.0.1", () => resolve()));
+  const elevenPort = (eleven.address() as { port: number }).port;
+  const port = 30000 + ((process.pid + 13) % 20000);
+  const child = spawn(process.execPath, ["contrib/alfred/server.mjs"], {
+    env: {
+      ...process.env,
+      ALFRED_PORT: String(port),
+      ALFRED_BRAIN: "gemini",
+      GEMINI_API_KEY: "test",
+      ALFRED_TOKEN: "",
+      OPENAI_API_KEY: "",
+      ELEVENLABS_API_KEY: "sk_free",
+      ALFRED_ELEVENLABS_URL: `http://127.0.0.1:${elevenPort}/v1/text-to-speech`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (d) => (stderr += d));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("server did not start")), 10_000);
+      child.stdout.on("data", (d) => {
+        if (String(d).includes(`:${port}`)) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+    const speak = () =>
+      fetch(`http://127.0.0.1:${port}/api/tts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Oi." }) });
+    const first = await speak();
+    assert.equal(first.status, 502);
+    await first.arrayBuffer();
+    for (let i = 0; i < 3; i++) {
+      const next = await speak();
+      assert.equal(next.status, 404, "voice off: no more calls, no more errors");
+      await next.arrayBuffer();
+    }
+    assert.equal(calls, 1);
+    assert.match(stderr, /plano pago/);
+    assert.equal(stderr.match(/TTS HTTP/g)?.length, 1);
+  } finally {
+    child.kill();
+    eleven.closeAllConnections();
+    eleven.close();
+  }
+});

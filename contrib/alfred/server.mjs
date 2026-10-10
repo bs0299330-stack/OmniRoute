@@ -148,6 +148,12 @@ async function handleTts(req, res) {
     console.error("[alfred] TTS HTTP", upstream.status, detail.slice(0, 500));
     const hint = ttsFailureHint(upstream.status, detail);
     if (hint) console.error(`   ⚠️  ${hint}`);
+    // A refused key, plan or credits will not fix itself: turn the AI voice off until Alfred is
+    // opened again, so the window shows this once instead of once per sentence.
+    if ([401, 402, 403].includes(upstream.status) || hint) {
+      console.error("   A voz de IA foi desligada até reabrir o Alfred; ele fala com a voz do navegador.");
+      config.ttsProvider = "";
+    }
     return sendJson(res, 502, { error: `A voz de IA falhou (${upstream.status}).` });
   }
   res.writeHead(200, {

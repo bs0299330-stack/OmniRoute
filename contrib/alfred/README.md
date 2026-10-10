@@ -292,12 +292,12 @@ ElevenLabs (o Starter basta; no grátis as vozes da biblioteca não saem pela AP
 
 1. Em <https://elevenlabs.io/app/settings/api-keys>, clique em **Create API Key**, deixe o acesso a
    **Text to Speech** ligado e copie a chave.
-2. Rode o instalador de novo e responda **S** em "Colocar a chave do ElevenLabs agora?". Ou coloque
-   a chave em `ELEVENLABS_API_KEY=` no `alfred.env`.
+2. Coloque a chave em `ELEVENLABS_API_KEY=` no `alfred.env` e reabra o Alfred. (O instalador não
+   liga essa voz: se encontrar uma chave, ele a deixa guardada mas pausada, com `# ` na frente.)
 
 O Alfred usa o modelo `eleven_v4_turbo` (rápido e expressivo) e, se a conta recusar esse modelo,
 passa sozinho para o `eleven_flash_v2_5`. Se a chave, o plano ou os créditos derem problema, a
-janela preta explica o motivo e as respostas saem na voz do navegador. Com a chave, essa voz tem
+janela preta explica o motivo e o resto da conversa sai na voz do navegador, sem aviso na tela. Com a chave, essa voz tem
 prioridade sobre a da OpenAI (`ALFRED_TTS_PROVIDER=openai` força a OpenAI).
 
 **Voz de IA (recomendado):** coloque a sua chave da OpenAI no `alfred.env`:
