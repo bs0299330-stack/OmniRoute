@@ -239,6 +239,26 @@ switch ($choice) {
   "3" { Set-ClaudeBrain }
 }
 
+# Cidade do clima (bom dia e "vai chover?"): perguntada uma vez e guardada so neste PC.
+if (-not (Get-AlfredEnv $EnvFile "ALFRED_CITY")) {
+  Say ""
+  $city = (Read-Host "  Sua cidade, para o clima do bom dia (ex.: Cabixi), ou so Enter para pular").Trim()
+  if ($city -match "^[\p{L}][\p{L} .'-]{1,59}$") {
+    $text = [IO.File]::ReadAllText($EnvFile)
+    $line = "ALFRED_CITY=""$city"""
+    if ($text -match "(?m)^[ \t]*#?[ \t]*ALFRED_CITY[ \t]*=.*$") {
+      $text = ([regex]"(?m)^[ \t]*#?[ \t]*ALFRED_CITY[ \t]*=.*$").Replace($text, $line.Replace('$', '$$'), 1)
+    } else {
+      if ($text -and -not $text.EndsWith("`n")) { $text += "`r`n" }
+      $text += "$line`r`n"
+    }
+    [IO.File]::WriteAllText($EnvFile, $text, (New-Object System.Text.UTF8Encoding $false))
+    Say "        Cidade do clima: $city" "Green"
+  } elseif ($city) {
+    Say "  Nao entendi o nome da cidade; o clima fica em Sao Paulo. Rode o instalador de novo para trocar." "DarkGray"
+  }
+}
+
 # Voz do Fabio (ElevenLabs) em todas as respostas: fica para quando voce pedir. Ela precisa de
 # plano pago no ElevenLabs. Uma chave colocada antes fica guardada, mas pausada (comentada), e o
 # Alfred volta a voz de sempre. Para ligar depois: tire o "# " da linha no alfred.env.

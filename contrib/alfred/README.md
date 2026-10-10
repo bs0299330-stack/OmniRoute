@@ -262,6 +262,16 @@ reconhecimento de voz).
   `%LOCALAPPDATA%\Alfred\Edge`). Na primeira vez, o Edge pede o microfone: clique em **Permitir**.
   Aberto em outro navegador, ele pode pedir **um clique no globo** para ligar o som.
 
+### Bom dia
+
+Na **primeira vez que o Alfred abre no dia** (por exemplo, quando o PC liga com
+`ligar-com-o-windows.cmd`), ele fala sozinho um bom dia completo: o dia e a hora, o clima de hoje
+na sua cidade (Open-Meteo) e as três principais manchetes (Agência Brasil). Ao reabrir no mesmo dia,
+ele diz só "Alfred a postos". Depois do meio-dia vira "Boa tarde" e, à noite, "Boa noite".
+
+A cidade é perguntada pelo instalador uma vez e fica no `alfred.env` deste PC
+(`ALFRED_CITY="Sua Cidade"`). Sem ela, o clima é o de São Paulo.
+
 ### Chamar com duas palmas
 
 As palmas já vêm ligadas (dá para desligar no menu, tecla **M**). Com o Alfred parado, bata **duas

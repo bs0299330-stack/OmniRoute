@@ -255,10 +255,22 @@
       const SOUND_LOCKED = "Clique no globo uma vez para ligar o som do Alfred.";
       let soundLocked = false;
       let greeted = false;
-      function greetOnce() {
+      // Ao abrir: na primeira vez do dia, o "bom dia" completo (dia, hora, clima e notícias);
+      // nas outras, só "Alfred a postos".
+      async function greetOnce() {
         if (greeted) return;
         greeted = true;
-        phrase("inicio");
+        const today = new Date().toLocaleDateString("pt-BR");
+        if (!$("speak").checked || store.get("briefing", "") === today) return phrase("inicio");
+        try {
+          const res = await fetch("api/briefing", { headers: authHeaders(), signal: AbortSignal.timeout(15000) });
+          const { text } = await res.json();
+          if (!res.ok || !text) throw new Error("briefing " + res.status);
+          store.set("briefing", today);
+          speaker.sayAll(text);
+        } catch {
+          phrase("inicio");
+        }
       }
       function checkSound() {
         let running = true;

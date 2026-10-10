@@ -177,7 +177,26 @@ async function weather(city, day, fetchImpl) {
       `${days[day]} em ${where}: ${weatherWords(d.weather_code[day])}, mínima de ${Math.round(d.temperature_2m_min[day])} °C, máxima de ${Math.round(d.temperature_2m_max[day])} °C, chance de chuva de ${d.precipitation_probability_max[day] ?? 0}%`
     );
   }
-  return lines.length ? { source: "Open-Meteo", text: lines.join("; ") } : null;
+  if (!lines.length) return null;
+  return {
+    source: "Open-Meteo",
+    text: lines.join("; "),
+    data: {
+      place: place.name,
+      current: f.current
+        ? { temp: Math.round(f.current.temperature_2m), words: weatherWords(f.current.weather_code) }
+        : null,
+      day:
+        d?.time?.[day] !== undefined
+          ? {
+              words: weatherWords(d.weather_code[day]),
+              min: Math.round(d.temperature_2m_min[day]),
+              max: Math.round(d.temperature_2m_max[day]),
+              rain: d.precipitation_probability_max[day] ?? 0,
+            }
+          : null,
+    },
+  };
 }
 
 async function news(fetchImpl) {
@@ -191,7 +210,7 @@ async function news(fetchImpl) {
         .filter((t) => !/^previs[aã]o do tempo/i.test(t))
         .slice(0, 4);
       if (titles.length) {
-        return { source, text: "manchetes (resuma em poucas frases): " + titles.map((t) => `"${t}"`).join("; ") };
+        return { source, text: "manchetes (resuma em poucas frases): " + titles.map((t) => `"${t}"`).join("; "), titles };
       }
     } catch {}
   }
@@ -230,4 +249,51 @@ export async function lookup(found, { city = "", fetchImpl = fetch } = {}) {
     if (found.kind === "wiki") return await wiki(found.query, fetchImpl);
   } catch {}
   return null;
+}
+
+// ---------- Bom dia (the briefing spoken when Alfred starts) ----------
+
+/** "7 horas e 15 minutos", "1 hora em ponto", "meio-dia e meia"… as Alfred would say it. */
+export function spokenTime(now = new Date()) {
+  const h = now.getHours();
+  const m = now.getMinutes();
+  const hours = h === 0 ? "meia-noite" : h === 12 ? "meio-dia" : `${h} ${h === 1 ? "hora" : "horas"}`;
+  if (m === 0) return h === 0 || h === 12 ? hours : `${hours} em ponto`;
+  if (m === 30 && (h === 0 || h === 12)) return `${hours} e meia`;
+  return `${hours} e ${m} ${m === 1 ? "minuto" : "minutos"}`;
+}
+
+/**
+ * The daily briefing: greeting, day and time, the weather in the user's city and the top
+ * headlines. Parts whose lookup failed are simply left out.
+ */
+export function buildBriefing(now = new Date(), { weather = null, news = null } = {}) {
+  const h = now.getHours();
+  const [greeting, wish] =
+    h >= 5 && h < 12 ? ["Bom dia", "um excelente dia"] : h >= 12 && h < 18 ? ["Boa tarde", "uma excelente tarde"] : ["Boa noite", "uma excelente noite"];
+  const date = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  const time = spokenTime(now);
+  const parts = [`${greeting}, senhor. Hoje é ${date}, e ${/^(meia-noite|meio-dia)/.test(time) ? "é" : "são"} ${time}.`];
+  const w = weather?.data;
+  if (w?.day || w?.current) {
+    const now_ = w.current ? `agora faz ${w.current.temp} graus, com ${w.current.words}. ` : "";
+    const day = w.day
+      ? `${w.current ? "Para" : "para"} hoje, ${w.day.words}, mínima de ${w.day.min} e máxima de ${w.day.max} graus` +
+        (w.day.rain >= 30 ? `, com ${w.day.rain} por cento de chance de chuva.` : ".")
+      : "";
+    parts.push(`Em ${w.place}, ${now_}${day}`.trim());
+  }
+  const titles = (news?.titles ?? []).slice(0, 3);
+  if (titles.length) parts.push(`Nas notícias, segundo a ${news.source}: ${titles.map((t) => t.replace(/[.!?…]+$/, "")).join(". ")}.`);
+  parts.push(`Tenha ${wish}, senhor.`);
+  return parts.join(" ");
+}
+
+/** Looks up the weather and the news (in parallel) and builds the briefing. */
+export async function briefing({ city = "", now = new Date(), fetchImpl = fetch } = {}) {
+  const [weather, news] = await Promise.all([
+    lookup({ kind: "weather", city: city || "São Paulo", day: 0 }, { fetchImpl }),
+    lookup({ kind: "news" }, { fetchImpl }),
+  ]);
+  return buildBriefing(now, { weather, news });
 }

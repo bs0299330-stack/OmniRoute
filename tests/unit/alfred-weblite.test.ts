@@ -81,7 +81,7 @@ test("weather: finds the city, then today's or tomorrow's forecast; default city
 test("news and wiki: skip automatic weather posts; nothing useful → null (Alfred says he could not check)", async () => {
   const feed = `<rss><channel><item><title>Previsão do tempo hoje para Osasco</title></item><item><title>Senado vota PEC</title></item></channel></rss>`;
   const n = await lookup({ kind: "news" }, { fetchImpl: fakeFetch({ "https://agenciabrasil.ebc.com.br/": feed }).impl });
-  assert.deepEqual(n, { source: "Agência Brasil", text: 'manchetes (resuma em poucas frases): "Senado vota PEC"' });
+  assert.deepEqual(n, { source: "Agência Brasil", text: 'manchetes (resuma em poucas frases): "Senado vota PEC"', titles: ["Senado vota PEC"] });
   const w = await lookup(
     { kind: "wiki", query: "Santos Dumont" },
     {
@@ -94,4 +94,34 @@ test("news and wiki: skip automatic weather posts; nothing useful → null (Alfr
   assert.deepEqual(w, { source: "Wikipédia", text: "Santos Dumont: Aeronauta brasileiro." });
   assert.equal(await lookup({ kind: "news" }, { fetchImpl: fakeFetch({}).impl }), null);
   assert.equal(await lookup({ kind: "money", codes: ["USD"] }, { fetchImpl: fakeFetch({}).impl }), null);
+});
+
+test("bom dia: spoken time and the daily briefing, leaving out what could not be looked up", async () => {
+  const { spokenTime, buildBriefing } = await import("../../contrib/alfred/weblite.mjs");
+  const at = (h: number, m: number) => new Date(2026, 9, 10, h, m);
+  assert.equal(spokenTime(at(7, 15)), "7 horas e 15 minutos");
+  assert.equal(spokenTime(at(1, 0)), "1 hora em ponto");
+  assert.equal(spokenTime(at(12, 0)), "meio-dia");
+  assert.equal(spokenTime(at(0, 30)), "meia-noite e meia");
+  assert.equal(spokenTime(at(13, 1)), "13 horas e 1 minuto");
+  const weather = {
+    source: "Open-Meteo",
+    text: "",
+    data: { place: "Cabixi", current: { temp: 23, words: "poucas nuvens" }, day: { words: "trovoadas", min: 22, max: 33, rain: 97 } },
+  };
+  const news = { source: "Agência Brasil", text: "", titles: ["Senado vota PEC.", "Chuva no Sul", "Copa começa", "Quarta manchete"] };
+  assert.equal(
+    buildBriefing(at(7, 15), { weather, news }),
+    "Bom dia, senhor. Hoje é sábado, 10 de outubro, e são 7 horas e 15 minutos. " +
+      "Em Cabixi, agora faz 23 graus, com poucas nuvens. Para hoje, trovoadas, mínima de 22 e máxima de 33 graus, com 97 por cento de chance de chuva. " +
+      "Nas notícias, segundo a Agência Brasil: Senado vota PEC. Chuva no Sul. Copa começa. " +
+      "Tenha um excelente dia, senhor."
+  );
+  assert.equal(
+    buildBriefing(at(12, 0)),
+    "Boa tarde, senhor. Hoje é sábado, 10 de outubro, e é meio-dia. Tenha uma excelente tarde, senhor.",
+    "no weather, no news: just the greeting"
+  );
+  const dry = { ...weather, data: { ...weather.data, current: null, day: { ...weather.data.day, rain: 10 } } };
+  assert.match(buildBriefing(at(20, 5), { weather: dry }), /^Boa noite.*Em Cabixi, para hoje, trovoadas, mínima de 22 e máxima de 33 graus\. Tenha uma excelente noite, senhor\.$/);
 });
