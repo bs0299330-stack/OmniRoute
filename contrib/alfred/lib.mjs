@@ -135,6 +135,8 @@ export function loadConfig(env = process.env) {
     sttModel: env.ALFRED_STT_MODEL || "",
     // City for weather questions that name none ("vai chover hoje?").
     city: env.ALFRED_CITY || "",
+    // Voice commands for the PC (sites, programs, volume, shut down); "off" turns them off.
+    pc: String(env.ALFRED_PC || "").toLowerCase() === "off" ? "off" : "on",
     ...resolveTts(env),
   };
 }

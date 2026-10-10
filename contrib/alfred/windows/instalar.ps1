@@ -24,6 +24,7 @@ $Files = @(
   "brain.mjs",
   "cli.mjs",
   "lib.mjs",
+  "pc.mjs",
   "server.mjs",
   "weblite.mjs",
   "public/clap.mjs",

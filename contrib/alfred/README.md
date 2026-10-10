@@ -272,6 +272,24 @@ ele diz só "Alfred a postos". Depois do meio-dia vira "Boa tarde" e, à noite, 
 A cidade é perguntada pelo instalador uma vez e fica no `alfred.env` deste PC
 (`ALFRED_CITY="Sua Cidade"`). Sem ela, o clima é o de São Paulo.
 
+### Mexer no PC (Windows)
+
+| Diga                                              | O Alfred                                                    |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| "Abre o YouTube / Gmail / Google / Netflix / Spotify" | Abre o site no navegador                                 |
+| "Abre a calculadora / o Word / o Excel / o bloco de notas / o Paint / o Chrome…" | Abre o programa |
+| "Pesquisa receita de bolo no Google", "toca jazz no YouTube" | Abre a busca                                     |
+| "Abre …" (qualquer outra coisa)                   | Procura no Google                                           |
+| "Aumenta / abaixa o volume", "sem som"            | Mexe no volume                                              |
+| "Pausa a música", "próxima música", "música anterior" | Controla o que estiver tocando                          |
+| "Desliga o PC", "reinicia o computador", "desliga daqui a 30 minutos" | Pergunta "tem certeza?"; só com **sim** ele agenda, com 1 minuto para desistir |
+| "Cancela o desligamento"                          | Cancela                                                     |
+
+Os comandos são reconhecidos pela **sua frase**, numa lista fixa (`pc.mjs`). A IA nunca executa
+nada, então nenhuma página ou resposta consegue mandar o Alfred mexer no PC. Só programas fixos
+rodam, sem passar suas palavras para um terminal: elas só entram codificadas no endereço da busca.
+`ALFRED_PC=off` no `alfred.env` desliga tudo isso.
+
 ### Chamar com duas palmas
 
 As palmas já vêm ligadas (dá para desligar no menu, tecla **M**). Com o Alfred parado, bata **duas
@@ -403,6 +421,7 @@ ele envia sozinho.
 | `ALFRED_OPENAI_MODEL`  | `gpt-4o-mini`                | Modelo quando o cérebro é a OpenAI (sem internet) |
 | `ALFRED_WEB`           | `full`                       | Internet: `full`, `search` ou `off`             |
 | `ALFRED_CITY`          | São Paulo                    | Cidade do clima quando a pergunta não diz qual  |
+| `ALFRED_PC`            | ligado                       | `off` desliga os comandos do PC                 |
 | `ALFRED_OPENAI_SEARCH_MODEL` | `gpt-5-search-api`     | Modelo da OpenAI com pesquisa na web            |
 | `ALFRED_STT_MODEL`     | `gpt-4o-mini-transcribe`     | Transcrição do microfone no terminal            |
 | `OMNIROUTE_URL`        | `http://localhost:20128/v1`  | Endpoint OpenAI-compatível do OmniRoute         |

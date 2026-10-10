@@ -14,7 +14,12 @@ import {
   liteWebSystemPrompt,
   usesLiteWeb,
 } from "./lib.mjs";
+import { createPcControl } from "./pc.mjs";
 import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
+
+// Voice commands for the PC ("abre o YouTube", "aumenta o volume", "desliga o PC"…), shared by
+// the page and the terminal; it keeps the one pending "tem certeza?" confirmation.
+let pcControl = null;
 
 export const BRAIN_LABELS = {
   omniroute: "OmniRoute",
@@ -277,6 +282,15 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     );
   arm();
   try {
+    // PC commands are answered by Alfred himself, without the brain.
+    if (config.pc !== "off") {
+      pcControl ??= createPcControl();
+      const done = pcControl.handle(messages[messages.length - 1]?.content);
+      if (done) {
+        yield done;
+        return;
+      }
+    }
     let found = null;
     // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"
     // in free public services first, and hand the result to the brain.
