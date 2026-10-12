@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { detectLookup, lookup, lookupLabel, rssTitles, weatherWords } from "../../contrib/alfred/weblite.mjs";
+import { detectLookup, lookup, lookupLabel, rssItems, shortSummary, weatherWords } from "../../contrib/alfred/weblite.mjs";
 
 test("detectLookup spots rates, weather, news and who/what questions — and leaves the rest alone", () => {
   assert.deepEqual(detectLookup("Alfred, quanto está o dólar hoje?"), { kind: "money", codes: ["USD"] });
@@ -20,12 +20,30 @@ test("detectLookup spots rates, weather, news and who/what questions — and lea
   assert.equal(weatherWords(61), "chuva fraca");
 });
 
-test("rssTitles reads item titles (CDATA and entities), never the channel title", () => {
+test("rssItems: title, category and a clean summary, never captions, related links or posts", () => {
+  const story = "Lead da matéria com mais de sessenta caracteres para valer como resumo da notícia.";
   const xml = `<rss><channel><title>Feed</title>
-    <item><title><![CDATA[Câmara aprova <b>projeto</b>]]></title></item>
+    <item><title><![CDATA[Câmara aprova <b>projeto</b>]]></title><category>Política</category><category>tag</category>
+      <description>&lt;p&gt;&lt;img src="x.jpg"&gt;&lt;/p&gt;&lt;p&gt;Foto: Fulano/Agência Brasil&lt;/p&gt;&lt;p&gt;Notícias relacionadas: outra coisa qualquer que é bem longa mesmo, com mais de sessenta.&lt;/p&gt;&lt;p&gt;${story} &amp;quot;ok&amp;quot;&lt;/p&gt;</description></item>
+    <item><title>Chuva &amp; frio no Sul</title><atom:subtitle>Frente fria chega &lt;i&gt;amanhã&lt;/i&gt;.</atom:subtitle>
+      <description><![CDATA[ <img src="y.jpg" /> ]]> texto</description></item>
     <item><title>Chuva &amp; frio no Sul</title></item>
-    <item><title>Chuva &amp; frio no Sul</title></item></channel></rss>`;
-  assert.deepEqual(rssTitles(xml), ["Câmara aprova projeto", "Chuva & frio no Sul"]);
+    <item><title>Sem resumo</title><script>alert(1)</script></item></channel></rss>`;
+  assert.deepEqual(rssItems(xml), [
+    { title: "Câmara aprova projeto", category: "Política", summary: `${story} "ok"` },
+    { title: "Chuva & frio no Sul", category: "", summary: "Frente fria chega amanhã." },
+    { title: "Sem resumo", category: "", summary: "" },
+  ]);
+  assert.equal(rssItems(xml, 1).length, 1);
+});
+
+test("shortSummary cuts at a sentence end, or at a word with an ellipsis", () => {
+  assert.equal(shortSummary("Curto."), "Curto.");
+  const long = "Primeira frase bem comprida que explica o caso todo com calma e detalhes. " + "palavra ".repeat(60);
+  assert.equal(shortSummary(long, 120), "Primeira frase bem comprida que explica o caso todo com calma e detalhes.");
+  const words = "palavra ".repeat(60).trim();
+  const cut = shortSummary(words, 50);
+  assert.ok(cut.endsWith("palavra…") && cut.length <= 51, cut);
 });
 
 // A fake fetch that answers by URL prefix.
@@ -146,4 +164,16 @@ test("curiosidade do dia: Wikipedia's 'Neste dia', cleaned for speech; null when
   assert.equal(await onThisDay(new Date(2026, 9, 10, 7), fakeFetch({}).impl), null);
   const { buildBriefing } = await import("../../contrib/alfred/weblite.mjs");
   assert.match(buildBriefing(new Date(2026, 2, 15, 9), { curiosity: { year: -44, text: "Júlio César é assassinado." } }), /em 44 antes de Cristo: Júlio César/);
+});
+
+test("newsFeed: Agência Brasil first, g1 when it fails, without weather posts", async () => {
+  const { newsFeed } = await import("../../contrib/alfred/weblite.mjs");
+  const rss = (...titles: string[]) => `<rss><channel>${titles.map((t) => `<item><title>${t}</title><category>Geral</category></item>`).join("")}</channel></rss>`;
+  const ab = fakeFetch({ "https://agenciabrasil.ebc.com.br/": rss("Um", "Dois", "Três", "Quatro", "Cinco") });
+  const feed = await newsFeed(ab.impl);
+  assert.equal(feed?.source, "Agência Brasil");
+  assert.deepEqual(feed?.items.map((i) => i.title), ["Um", "Dois", "Três", "Quatro"]);
+  const g1 = fakeFetch({ "https://g1.globo.com/": rss("Previsão do tempo para amanhã", "Notícia do g1") });
+  assert.deepEqual(await newsFeed(g1.impl), { source: "g1", items: [{ title: "Notícia do g1", category: "Geral", summary: "" }] });
+  assert.equal(await newsFeed(fakeFetch({}).impl), null);
 });

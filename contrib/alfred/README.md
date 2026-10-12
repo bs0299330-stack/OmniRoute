@@ -232,10 +232,19 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
-### Só voz: o globo e nada mais
+### A tela: o globo no céu, o relógio e as notícias
 
-A página mostra **só o globo** (e a cidade ao fundo). Não há texto, campo de digitar nem botão de
-microfone: tudo é por voz. Use o **Edge** ou o **Chrome** (Brave, Opera e Firefox não fazem
+Num céu escuro e estrelado, a página mostra:
+
+- **no meio, o globo**: é com ele que você fala com o Alfred;
+- **em cima, à esquerda, a voz**: "Voz ativa" quando ele espera ser chamado, "Ouvindo",
+  "Pensando" e "Falando" (a bolinha azul pisca quando ele ouve), ou "Microfone desligado";
+- **em cima, à direita, o relógio**: hora, segundos, dia da semana e data;
+- **embaixo, à esquerda, as notícias do dia**: a principal com a editoria e um resumo, e mais três
+  manchetes. Vêm da Agência Brasil (ou do g1, se ela estiver fora do ar) e se atualizam sozinhas a
+  cada 30 minutos. Sem internet, o quadro some.
+
+Não há campo de digitar nem botão de microfone: tudo é por voz. Use o **Edge** ou o **Chrome** (Brave, Opera e Firefox não fazem
 reconhecimento de voz).
 
 | Ação                 | Como                                                                                   |
@@ -255,7 +264,7 @@ reconhecimento de voz).
   quando é a sua vez.
 - **O globo mostra o estado:** cinza esperando, amarelo ouvindo ou falando, pulsando ao pensar.
 - **Avisos só quando algo dá errado:** se o microfone for bloqueado ou o servidor cair, uma linha
-  discreta aparece embaixo e o Alfred fala o problema. Se a internet cair ou o microfone parar de
+  discreta aparece embaixo, à direita, e o Alfred fala o problema. Se a internet cair ou o microfone parar de
   responder, ele tenta de novo sozinho a cada 30 segundos.
 - **Janela própria:** o `iniciar-alfred.cmd` abre o Alfred no Edge em uma janela só dele, sem abas
   nem barra de endereço, e já com o som liberado (perfil separado em
@@ -490,7 +499,11 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 - `weblite.mjs` — "internet leve" (cotações, clima, notícias, Wikipédia) e o bom dia.
 - `pc.mjs` — comandos do PC (lista fixa, sem terminal); `memory.mjs` — a memória (`memoria.json`);
   `care.mjs` — os lembretes de descanso e de água. Cada um tem o seu `tests/unit/alfred-*.test.ts`.
-- `public/hud.css` + `public/hud.mjs` — o visual e o globo de ~700 partículas: gira devagar em
+- `public/screen.css` + `public/screen.mjs` — a tela da página local: o céu, o relógio, o
+  indicador de voz e as notícias (`GET /api/news`, guardadas por 10 minutos no servidor); testado
+  em `tests/unit/alfred-screen.test.ts`. O desenho é feito para 1280×720 e cresce ou diminui junto
+  com a janela; no celular, tudo fica numa coluna.
+- `public/hud.css` + `public/hud.mjs` — o menu, a versão do Claude e o globo de ~700 partículas: gira devagar em
   espera, fica amarelo e "respira" ouvindo, gira em faixas processando e se agita com a voz
   falando (pelo volume real da voz de IA, ou pelas palavras da voz do navegador).
 - `server.mjs` — HTTP: serve a página, valida, injeta o prompt de sistema e repassa o stream.

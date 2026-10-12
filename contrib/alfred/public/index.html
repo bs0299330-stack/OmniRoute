@@ -8,18 +8,35 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500&family=Saira+Condensed:wght@500;600;700&family=Share+Tech+Mono&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&family=Space+Grotesk:wght@400;500;600&display=swap"
     />
     <link rel="stylesheet" href="hud.css" />
+    <link rel="stylesheet" href="screen.css" />
   </head>
   <body class="voice-only">
-    <!-- Só voz: na tela, apenas o globo (e a cidade ao fundo). O microfone fica sempre ligado
-         esperando “Alfred” ou duas palmas; o menu abre com a tecla M. -->
-    <canvas id="skyline" aria-hidden="true"></canvas>
-    <main class="stage" aria-label="Alfred">
-      <canvas id="orb" aria-hidden="true"></canvas>
-      <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
-    </main>
+    <!-- Só voz: o globo no meio do céu, a voz (em cima à esquerda), o relógio (em cima à direita)
+         e as notícias do dia (embaixo à esquerda). O microfone fica sempre ligado esperando
+         “Alfred” ou duas palmas; o menu abre com a tecla M. -->
+    <div class="screen">
+      <p class="voice-state" id="voiceState" data-state="idle"><span class="dot" aria-hidden="true"></span><span id="voiceLabel">Voz ativa</span></p>
+      <section class="clock" aria-label="Hora local">
+        <p class="eyebrow">Hora local</p>
+        <p class="time"><span id="clockHM">--:--</span><span class="sec" id="clockSec">--</span></p>
+        <p class="day" id="clockDay"></p>
+        <p class="date" id="clockDate"></p>
+      </section>
+      <main class="stage" aria-label="Alfred">
+        <canvas id="orb" aria-hidden="true"></canvas>
+        <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
+      </main>
+      <section class="news" id="news" aria-labelledby="newsHead" hidden>
+        <h2 class="eyebrow" id="newsHead">Notícias do dia</h2>
+        <p class="news-tag" id="newsTag"></p>
+        <h3 class="news-title" id="newsTitle"></h3>
+        <p class="news-summary" id="newsSummary"></p>
+        <ol class="news-more" id="newsMore"></ol>
+      </section>
+    </div>
     <p class="notice" id="status" role="alert" hidden></p>
     <button class="menu-key" id="menuBtn" type="button" aria-label="Menu (tecla M)" aria-expanded="false" aria-controls="drawer">≡</button>
 
@@ -43,7 +60,7 @@
         <label class="switch" for="speak">Falar as respostas <input type="checkbox" id="speak" checked /></label>
         <label class="switch" for="wake">Ouvir sempre (responde ao ouvir “Alfred”) <input type="checkbox" id="wake" checked /></label>
         <label class="switch" for="clap">Ativar com duas palmas <input type="checkbox" id="clap" checked /></label>
-        <label class="switch" for="clips">Frases gravadas (voz do Fabio) <input type="checkbox" id="clips" checked /></label>
+        <label class="switch" for="clips" id="clipsField">Frases gravadas <input type="checkbox" id="clips" checked /></label>
         <label class="field" for="clapSensitivity" id="clapSensitivityField" hidden>
           Sensibilidade das palmas
           <select id="clapSensitivity">
@@ -135,7 +152,8 @@
         isStopPhrase,
         matchWakeWord,
       } from "./voice.mjs";
-      import { STATE_LABELS, createOrb, drawSkyline, playGothamTheme, setupDrawer } from "./hud.mjs";
+      import { STATE_LABELS, createOrb, playGothamTheme, setupDrawer } from "./hud.mjs";
+      import { indicatorFor, renderNews, startClock, startNews } from "./screen.mjs";
       import { startClapListener } from "./clap.mjs";
 
       const $ = (id) => document.getElementById(id);
@@ -178,12 +196,18 @@
 
       // ---------- HUD ----------
       const orb = createOrb($("orb"));
-      drawSkyline($("skyline"));
       const menu = setupDrawer({ button: $("menuBtn"), drawer: $("drawer"), scrim: $("scrim"), restoreFocus: false });
+      startClock({ hm: $("clockHM"), sec: $("clockSec"), day: $("clockDay"), date: $("clockDate") });
+      // a chave “Frases gravadas” só aparece quando há alguma frase gravada em public/frases/
+      $("clipsField").hidden = !Object.values(PHRASES).some((p) => p.file);
       function setPhase(phase, label) {
         orb.setState(phase);
         $("state").dataset.state = phase;
         $("state").textContent = label || STATE_LABELS[phase];
+        // a bolinha do canto: “Voz ativa”, “Ouvindo”, “Pensando”, “Falando”…
+        const voice = indicatorFor(phase, { mic: !!listening || !!claps?.running, music: !!intro });
+        $("voiceState").dataset.state = voice.state;
+        $("voiceLabel").textContent = voice.label;
       }
       function settle() {
         // as palmas só valem com o Alfred parado (sem ouvir frase, sem falar, sem pensar)
@@ -283,7 +307,7 @@
         if ($("status").hidden) setStatus(SOUND_LOCKED, true); // não cobre um aviso mais importante
       }
 
-      // Frases fixas: gravadas (voz do Fabio) quando houver arquivo, senão na voz normal.
+      // Frases fixas: gravadas quando houver arquivo em public/frases/, senão na voz normal.
       function phrase(name) {
         const p = PHRASES[name];
         if (!p || !$("speak").checked) return false;
@@ -986,6 +1010,17 @@
           $("online").textContent = "offline";
           setStatus("Servidor do Alfred offline.", true);
         });
+
+      // Notícias do dia (Agência Brasil, ou g1): agora e de novo a cada 30 minutos.
+      startNews({
+        load: async () => {
+          const res = await fetch("api/news", { headers: authHeaders(), signal: AbortSignal.timeout(20000) });
+          if (!res.ok) throw new Error("news " + res.status);
+          return res.json();
+        },
+        show: (view) =>
+          renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view),
+      });
 
       syncVoiceUi();
       render();

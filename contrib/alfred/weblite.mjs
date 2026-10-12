@@ -86,24 +86,59 @@ export const weatherWords = (code) => WMO[code] ?? "tempo variável";
 const brl = (n) =>
   Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: Number(n) >= 1000 ? 0 : 2 });
 
-/** Pulls `<item><title>` texts out of an RSS feed (titles only; nothing is ever executed). */
-export function rssTitles(xml, max = 6) {
-  const titles = [];
-  for (const item of String(xml).matchAll(/<item\b[\s\S]*?<\/item>/gi)) {
-    const m = item[0].match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i);
-    const title = m?.[1]
-      ?.replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;|&apos;/g, "'")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/<[^>]*>/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (title && !titles.includes(title)) titles.push(title.slice(0, 200));
-    if (titles.length >= max) break;
+const ENTITIES = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+const decode = (s) =>
+  String(s ?? "").replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) =>
+    e[0] === "#"
+      ? String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1)))
+      : ENTITIES[e.toLowerCase()] ?? m
+  );
+const tagText = (item, tag) => {
+  const m = item.match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
+  return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, "") : "";
+};
+const plainText = (html) =>
+  decode(String(html).replace(/<[^>]*>/g, " "))
+    .replace(/<[^>]*>/g, "") // tags that arrived escaped (&lt;i&gt;)
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Cuts a summary to about `max` characters, at the end of a sentence when there is one. */
+export function shortSummary(text, max = 300) {
+  const t = String(text ?? "").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (end > max * 0.4) return cut.slice(0, end + 1);
+  return cut.slice(0, cut.lastIndexOf(" ")).replace(/[,;:]$/, "") + "…";
+}
+
+/**
+ * The stories of an RSS feed for the screen: `{ title, category, summary }`. The summary is the
+ * feed's subtitle (g1) or the first real paragraph of the story (Agência Brasil), never photo
+ * captions, "Notícias relacionadas" or embedded posts. Everything comes out as plain text.
+ */
+export function rssItems(xml, max = 6) {
+  const items = [];
+  for (const raw of String(xml).matchAll(/<item\b[\s\S]*?<\/item>/gi)) {
+    const item = raw[0];
+    const title = plainText(tagText(item, "title")).slice(0, 200);
+    if (!title || items.some((i) => i.title === title)) continue;
+    const category = plainText(tagText(item, "category")).slice(0, 40);
+    let summary = plainText(tagText(item, "atom:subtitle"));
+    if (!summary) {
+      let body = tagText(item, "description");
+      if (/&lt;/.test(body)) body = decode(body); // HTML sent as escaped text
+      summary =
+        body
+          .split(/<\/p>|<br\s*\/?>|\n/i)
+          .map(plainText)
+          .find((p) => p.length >= 60 && !/^(notícias relacionadas|leia também|foto:|ver esse post)/i.test(p) && !/instagram|^©/i.test(p)) ?? "";
+    }
+    items.push({ title, category, summary: shortSummary(summary) });
+    if (items.length >= max) break;
   }
-  return titles;
+  return items;
 }
 
 // ---------- Fetching (free services, no key) ----------
@@ -202,22 +237,28 @@ async function weather(city, day, fetchImpl) {
   };
 }
 
-async function news(fetchImpl) {
+/** The latest stories, `{ source, items }` (Agência Brasil, then g1), or null when both fail. */
+export async function newsFeed(fetchImpl = fetch, max = 4) {
   for (const [source, url] of [
     ["Agência Brasil", "https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml"],
     ["g1", "https://g1.globo.com/rss/g1/"],
   ]) {
     try {
       // g1 fills its feed with automatic weather posts at night: those are not headlines.
-      const titles = rssTitles(await getText(url, fetchImpl), 12)
-        .filter((t) => !/^previs[aã]o do tempo/i.test(t))
-        .slice(0, 4);
-      if (titles.length) {
-        return { source, text: "manchetes (resuma em poucas frases): " + titles.map((t) => `"${t}"`).join("; "), titles };
-      }
+      const items = rssItems(await getText(url, fetchImpl), 12)
+        .filter((i) => !/^previs[aã]o do tempo/i.test(i.title))
+        .slice(0, max);
+      if (items.length) return { source, items };
     } catch {}
   }
   return null;
+}
+
+async function news(fetchImpl) {
+  const feed = await newsFeed(fetchImpl);
+  if (!feed) return null;
+  const titles = feed.items.map((i) => i.title);
+  return { source: feed.source, text: "manchetes (resuma em poucas frases): " + titles.map((t) => `"${t}"`).join("; "), titles };
 }
 
 async function wiki(query, fetchImpl) {

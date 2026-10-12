@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BRAIN_LABELS, BrainError, detectBrainInfo, getMemory, keepLocalWarm, streamReply } from "./brain.mjs";
 import { createCare } from "./care.mjs";
-import { briefing } from "./weblite.mjs";
+import { briefing, newsFeed } from "./weblite.mjs";
 import {
   ELEVENLABS_FALLBACK_MODEL,
   buildPhoneLink,
@@ -80,12 +80,17 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+const NEWS_TTL_MS = 10 * 60_000;
+let newsCache = null; // { at, feed }
+
 const STATIC_FILES = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/voice.mjs": ["voice.mjs", "text/javascript; charset=utf-8"],
   "/hud.mjs": ["hud.mjs", "text/javascript; charset=utf-8"],
   "/clap.mjs": ["clap.mjs", "text/javascript; charset=utf-8"],
   "/hud.css": ["hud.css", "text/css; charset=utf-8"],
+  "/screen.css": ["screen.css", "text/css; charset=utf-8"],
+  "/screen.mjs": ["screen.mjs", "text/javascript; charset=utf-8"],
 };
 
 async function serveStatic(res, [file, type], cache = "no-store") {
@@ -276,6 +281,14 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, {
         text: await briefing({ city: config.city, now, name: memory?.name ?? "", birthdays: memory?.birthdaysOn(now) ?? [] }),
       });
+    }
+    if (req.method === "GET" && url.pathname === "/api/news") {
+      // "Notícias do dia" on the screen. Kept for 10 minutes, so pages refreshing it cost little.
+      if (!newsCache || Date.now() - newsCache.at > NEWS_TTL_MS) {
+        const feed = await newsFeed();
+        if (feed || !newsCache) newsCache = { at: Date.now(), feed };
+      }
+      return sendJson(res, 200, newsCache.feed ?? { source: null, items: [] });
     }
     sendJson(res, 404, { error: "Não encontrado." });
   } catch (err) {

@@ -1,0 +1,320 @@
+/* Alfred — the local page: the particle globe in the middle of a night sky, the voice indicator
+   (top left), the clock (top right) and "Notícias do dia" (bottom left). Drawn for a 1280×720
+   screen and scaled as a whole: every size is a multiple of --u, one "design pixel". Loaded after
+   hud.css, whose menu (key M) and controls take the colors and fonts set here. */
+body.voice-only {
+  --u: clamp(0.8px, min(100vw / 1280, 100vh / 720), 1.6px);
+  --sky: #05060b;
+  --void: #05060b;
+  --night: #0a0b11;
+  --surface: #0b0c12;
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --bright: #e9e6f0;
+  --text: #a3a1b3;
+  --muted: #8f8da1;
+  --soft: #d6d3e0;
+  --accent: #9ad7ff;
+  --danger: #ff9a9a;
+  --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  /* the stars: two repeating layers of tiny dots, the brighter ones sparser */
+  background-color: var(--sky);
+  background-image:
+    radial-gradient(circle at calc(60 * var(--u)) calc(90 * var(--u)), #fff calc(1.4 * var(--u)), transparent calc(2 * var(--u))),
+    radial-gradient(circle at calc(310 * var(--u)) calc(200 * var(--u)), #fff calc(1.4 * var(--u)), transparent calc(2 * var(--u))),
+    radial-gradient(circle at calc(20 * var(--u)) calc(30 * var(--u)), rgba(255, 255, 255, 0.5) calc(0.7 * var(--u)), transparent calc(1.1 * var(--u))),
+    radial-gradient(circle at calc(270 * var(--u)) calc(70 * var(--u)), rgba(255, 255, 255, 0.5) calc(0.7 * var(--u)), transparent calc(1.1 * var(--u))),
+    radial-gradient(circle at calc(150 * var(--u)) calc(140 * var(--u)), rgba(255, 255, 255, 0.35) calc(0.7 * var(--u)), transparent calc(1.1 * var(--u))),
+    radial-gradient(circle at calc(90 * var(--u)) calc(210 * var(--u)), rgba(255, 255, 255, 0.35) calc(0.7 * var(--u)), transparent calc(1.1 * var(--u)));
+  background-size:
+    calc(520 * var(--u)) calc(380 * var(--u)),
+    calc(520 * var(--u)) calc(380 * var(--u)),
+    calc(340 * var(--u)) calc(260 * var(--u)),
+    calc(340 * var(--u)) calc(260 * var(--u)),
+    calc(340 * var(--u)) calc(260 * var(--u)),
+    calc(340 * var(--u)) calc(260 * var(--u));
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+:where(.screen) :where(p, h2, h3, ol) {
+  margin: 0;
+}
+
+/* small labels: VOZ ATIVA, HORA LOCAL, NOTÍCIAS DO DIA */
+.eyebrow,
+.voice-state {
+  font: 400 calc(11 * var(--u)) / 1 var(--font-data);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---------- voice indicator ---------- */
+.voice-state {
+  position: absolute;
+  top: calc(45 * var(--u));
+  left: calc(56 * var(--u));
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--u));
+}
+.voice-state .dot {
+  width: calc(8 * var(--u));
+  height: calc(8 * var(--u));
+  border-radius: 50%;
+  background: var(--accent);
+}
+.voice-state[data-state="listening"] .dot {
+  animation: blink 1s ease-in-out infinite;
+}
+.voice-state[data-state="off"] .dot {
+  background: var(--muted);
+  opacity: 0.6;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+/* ---------- clock ---------- */
+.clock {
+  position: absolute;
+  top: calc(41 * var(--u));
+  right: calc(56 * var(--u));
+  text-align: right;
+}
+.clock .eyebrow {
+  margin-right: -0.22em; /* the letter spacing after the last letter */
+}
+.time {
+  margin-top: calc(25 * var(--u));
+  font: 300 calc(68 * var(--u)) / 0.8 var(--font-data);
+  letter-spacing: -0.02em;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.time .sec {
+  margin-left: calc(10 * var(--u));
+  font-size: calc(20 * var(--u));
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--accent);
+}
+.day {
+  margin-top: calc(27 * var(--u));
+  font: 600 calc(24 * var(--u)) / 1 var(--font-body);
+  color: var(--bright);
+}
+.date {
+  margin-top: calc(10 * var(--u));
+  margin-right: -0.1em;
+  font: 400 calc(12 * var(--u)) / 1 var(--font-data);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+/* ---------- the globe ---------- */
+.stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+#orb {
+  display: block;
+  width: calc(460 * var(--u));
+  aspect-ratio: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- news ---------- */
+.news {
+  position: absolute;
+  left: calc(56 * var(--u));
+  bottom: calc(44 * var(--u));
+  width: calc(380 * var(--u));
+}
+.news-tag {
+  margin-top: calc(26 * var(--u));
+  font: 400 calc(11 * var(--u)) / 1 var(--font-data);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.news-title {
+  margin-top: calc(14 * var(--u));
+  font: 500 calc(24 * var(--u)) / calc(29 * var(--u)) var(--font-body);
+  color: var(--bright);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.news-summary {
+  margin-top: calc(12 * var(--u));
+  font: 400 calc(14 * var(--u)) / calc(22 * var(--u)) var(--font-body);
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+.news-more {
+  margin-top: calc(22 * var(--u));
+  padding: calc(18 * var(--u)) 0 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+.news-more li {
+  display: flex;
+  align-items: baseline;
+  gap: calc(14 * var(--u));
+  font: 400 calc(15 * var(--u)) / calc(20 * var(--u)) var(--font-body);
+  color: var(--soft);
+}
+.news-more .t {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.news-more li + li {
+  margin-top: calc(11.5 * var(--u));
+}
+.news-more .n {
+  flex: none;
+  font: 400 calc(11 * var(--u)) / 1 var(--font-data);
+  color: var(--accent);
+}
+
+/* ---------- warnings and the hidden menu key ---------- */
+.notice {
+  position: fixed;
+  z-index: 2;
+  right: calc(56 * var(--u));
+  bottom: calc(44 * var(--u));
+  max-width: min(calc(420 * var(--u)), calc(100vw - 32px));
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(11, 12, 18, 0.92);
+  color: var(--danger);
+  font: 400 0.85rem/1.45 var(--font-body);
+}
+.menu-key {
+  position: fixed;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  width: 40px;
+  height: 40px;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.menu-key:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---------- phone ---------- */
+@media (max-width: 760px) {
+  body.voice-only {
+    --u: 1px;
+    overflow-y: auto;
+  }
+  .screen {
+    position: relative;
+    inset: auto;
+    min-height: 100%;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "voice clock"
+      "stage stage"
+      "news news";
+    align-items: start;
+    padding: 20px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+    gap: 8px 12px;
+  }
+  .voice-state,
+  .clock,
+  .stage,
+  .news {
+    position: static;
+  }
+  .voice-state {
+    grid-area: voice;
+    padding-top: 4px;
+  }
+  .clock {
+    grid-area: clock;
+  }
+  .time {
+    margin-top: 12px;
+    font-size: 48px;
+  }
+  .time .sec {
+    font-size: 15px;
+    margin-left: 6px;
+  }
+  .day {
+    margin-top: 12px;
+    font-size: 18px;
+  }
+  .stage {
+    grid-area: stage;
+    padding-block: 8px;
+  }
+  #orb {
+    width: min(84vw, 50vh, 420px);
+  }
+  .news {
+    grid-area: news;
+    width: auto;
+  }
+  .notice {
+    left: 16px;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-state[data-state="listening"] .dot {
+    animation: none;
+    box-shadow: 0 0 calc(14 * var(--u)) rgba(154, 215, 255, 0.9);
+  }
+}

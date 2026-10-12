@@ -33,6 +33,8 @@ $Files = @(
   "public/hud.css",
   "public/hud.mjs",
   "public/index.html",
+  "public/screen.css",
+  "public/screen.mjs",
   "public/voice.mjs",
   "claude/build.mjs",
   "claude/index.html",
