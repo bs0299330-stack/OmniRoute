@@ -190,6 +190,12 @@ export function createOrb(canvas) {
       analyser = node;
       samples = null;
     },
+    /** That audio ended: back to the word pulses of the browser voice (if it is still the one). */
+    detachAnalyser(node) {
+      if (analyser !== node) return;
+      analyser = null;
+      samples = null;
+    },
   };
 }
 

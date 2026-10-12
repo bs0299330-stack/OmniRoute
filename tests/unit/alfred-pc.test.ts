@@ -79,3 +79,58 @@ test("outside Windows the commands are recognised but not run", () => {
   assert.match(pc.handle("abre o YouTube") ?? "", /só consigo mexer no computador quando ele é Windows/);
   assert.equal(calls.length, 0);
 });
+
+test("questions and stories never act on the PC (they go to the brain)", () => {
+  for (const q of [
+    "o que acontece se eu desligar o computador durante a atualização?",
+    "desligar o computador faz mal?",
+    "desligar o computador faz mal",
+    "você sabe reiniciar o computador pelo teclado",
+    "minha mãe desliga o computador todo dia",
+    "desliga a máquina de lavar",
+    "meu celular não desliga, o que eu faço?",
+    "por que meu computador não reinicia",
+    "liga pra minha mãe",
+    "vai na padaria comprar pão pra mim",
+    "o som está mais alto que o normal, por quê?",
+    "qual é a próxima",
+    "a TV está sem som",
+  ]) {
+    assert.equal(parseCommand(q), null, q);
+  }
+  assert.deepEqual(parseCommand("abre o YouTube por favor"), { type: "site", key: "youtube" });
+  assert.deepEqual(parseCommand("abre o meu email"), { type: "site", key: "email" });
+  assert.deepEqual(parseCommand("pode desligar o computador"), { type: "shutdown", restart: false, delay: 0 });
+  assert.deepEqual(parseCommand("pesquisa receita de pão de queijo no Google"), { type: "search", query: "receita de pão de queijo", where: "google" });
+});
+
+test("delays: words, compounds, '1h', 'e meia' and a clock time; an unclear time is asked", () => {
+  assert.equal(parseDelay("desliga daqui a quarenta e cinco minutos"), 2700);
+  assert.equal(parseDelay("desliga daqui a sete minutos"), 420);
+  assert.equal(parseDelay("desliga daqui a 1h"), 3600);
+  assert.equal(parseDelay("desliga em uma hora e meia"), 5400);
+  assert.equal(parseDelay("desliga o pc às 22 horas", new Date(2026, 9, 12, 21, 30)), 1800);
+  assert.equal(parseDelay("desliga o pc às 7h", new Date(2026, 9, 12, 21, 0)), 10 * 3600, "tomorrow morning");
+  assert.equal(parseDelay("desliga daqui a pouco"), null);
+  const { pc, calls } = fakePc();
+  assert.match(pc.handle("desliga o computador daqui a pouco") ?? "", /Não entendi para quando/);
+  assert.match(pc.handle("desliga o computador em uma hora e meia") ?? "", /daqui a uma hora e meia, mestre\?/);
+  assert.equal(calls.length, 0);
+});
+
+test("only a real yes confirms: 'pode deixar', 'claro que não' or a question never shut the PC down", () => {
+  for (const reply of ["pode deixar", "pode me explicar melhor?", "isso é sério?", "claro que não, era só um comentário"]) {
+    const { pc, calls } = fakePc();
+    pc.handle("desliga o PC");
+    pc.handle(reply);
+    assert.ok(!calls.some((c) => c[0] === "shutdown.exe"), reply);
+  }
+  const { pc, calls } = fakePc();
+  pc.handle("desliga o PC");
+  assert.equal(pc.handle("pode deixar"), "Tudo bem, mestre. Não vou desligar.");
+  pc.handle("desliga o PC");
+  assert.equal(pc.handle("que horas são"), null, "another subject: dropped, and the brain answers");
+  assert.equal(calls.length, 0);
+  pc.handle("desliga o PC");
+  assert.match(pc.handle("sim, mestre") ?? "", /^Desligando o computador em um minuto/);
+});

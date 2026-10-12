@@ -3,6 +3,9 @@ rem Faz o Alfred ligar sozinho, minimizado, sempre que voce entrar no Windows.
 chcp 65001 >nul
 cd /d "%~dp0.."
 set "ALFRED_DIR=%CD%"
+rem A porta do Alfred: ALFRED_PORT no alfred.env (se alguem mudou), senao 20140.
+set "PORT=20140"
+if exist "alfred.env" for /f "usebackq tokens=1,* delims== " %%a in ("alfred.env") do if /i "%%a"=="ALFRED_PORT" set "PORT=%%~b"
 set "NODE=node"
 where node >nul 2>nul
 if errorlevel 1 if exist "%ProgramFiles%\nodejs\node.exe" set "NODE=%ProgramFiles%\nodejs\node.exe"
@@ -16,11 +19,11 @@ echo.
 choice /c SN /n /m " Abrir o Alfred no Edge sempre que o PC ligar? E o que deixa as palmas prontas. [S/N] "
 if errorlevel 2 goto sem_navegador
 >> "%STARTUP%\Alfred.cmd" echo ping -n 6 127.0.0.1 ^>nul
->> "%STARTUP%\Alfred.cmd" echo start "" msedge --app=http://localhost:20140/ --user-data-dir="%%LOCALAPPDATA%%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized
+>> "%STARTUP%\Alfred.cmd" echo start "" msedge --app=http://localhost:%PORT%/ --user-data-dir="%%LOCALAPPDATA%%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized
 :sem_navegador
 echo.
 echo  Pronto! O Alfred vai ligar sozinho quando voce entrar no Windows.
-echo  Ele fica minimizado na barra de tarefas; o site e http://localhost:20140
+echo  Ele fica minimizado na barra de tarefas; o site e http://localhost:%PORT%
 echo  Ele ja abre ouvindo: diga "Alfred, ..." ou bata duas palmas.
 echo  Para desfazer, rode desligar-com-o-windows.cmd
 echo.

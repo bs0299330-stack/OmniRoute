@@ -7,6 +7,8 @@
 # Rodar de novo atualiza os arquivos e mantem o seu alfred.env.
 # Mensagens sem acento de proposito: o Windows PowerShell 5.1 pode embaralhar acentos.
 
+# Tudo dentro de & { }: nada do instalador (configuracoes, funcoes) fica na janela do PowerShell.
+& {
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue" # deixa o Invoke-WebRequest muito mais rapido no PS 5.1
 
@@ -79,6 +81,15 @@ Say ""
 if ($PSVersionTable.PSVersion.Major -lt 6) {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
+
+# Todos os arquivos da mesma versao: o GitHub guarda copias por alguns minutos, e logo depois de
+# uma atualizacao um arquivo novo podia chegar junto com um antigo. Fixa a ultima versao do ramo.
+try {
+  $commit = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/bs0299330-stack/OmniRoute/commits/$Branch" -Headers @{ "User-Agent" = "Alfred-instalador" }
+  if ("$($commit.sha)" -match "^[0-9a-f]{40}$") {
+    $Base = "https://raw.githubusercontent.com/bs0299330-stack/OmniRoute/$($commit.sha)/contrib/alfred"
+  }
+} catch {} # sem a API (limite por hora), baixa pelo nome do ramo como antes
 
 # 1. Arquivos
 Say "  [1/3] Baixando os arquivos do Alfred..."
@@ -263,10 +274,14 @@ if (-not (Get-AlfredEnv $EnvFile "ALFRED_CITY")) {
 # Voz do Fabio (ElevenLabs) em todas as respostas: fica para quando voce pedir. Ela precisa de
 # plano pago no ElevenLabs. Uma chave colocada antes fica guardada, mas pausada (comentada), e o
 # Alfred volta a voz de sempre. Para ligar depois: tire o "# " da linha no alfred.env.
-if (Test-Path $EnvFile) {
+# Pausa uma vez so: quem tirar o "# " depois para ligar a voz nao tem a escolha desfeita a cada
+# atualizacao (a linha ALFRED_ELEVENLABS_PAUSADA marca que a pausa ja foi feita).
+if ((Test-Path $EnvFile) -and -not ([IO.File]::ReadAllText($EnvFile) -match "(?m)^# ALFRED_ELEVENLABS_PAUSADA")) {
   $envText = [IO.File]::ReadAllText($EnvFile)
   $paused = [regex]::Replace($envText, "(?m)^([ \t]*)ELEVENLABS_API_KEY[ \t]*=[ \t]*(\S+)", '$1# ELEVENLABS_API_KEY=$2')
   if ($paused -ne $envText) {
+    if (-not $paused.EndsWith("`n")) { $paused += "`r`n" }
+    $paused += "# ALFRED_ELEVENLABS_PAUSADA (o instalador pausou a chave acima uma vez; tire o # da chave para ligar)`r`n"
     [IO.File]::WriteAllText($EnvFile, $paused, (New-Object System.Text.UTF8Encoding $false))
     Say "        Voz do ElevenLabs pausada: o Alfred volta a voz de sempre (a chave ficou guardada)." "Green"
   }
@@ -287,10 +302,25 @@ try {
   Say "        Nao consegui criar o atalho; use $launcher" "DarkGray"
 }
 
+# Um Alfred antigo ainda aberto (por exemplo, o que liga com o Windows) seguraria a porta com o
+# codigo velho: fecha ele antes (so o node.exe que esta escutando na porta do Alfred).
+$Port = "$(Get-AlfredEnv $EnvFile "ALFRED_PORT")".Trim('"', "'")
+if ("$Port" -notmatch "^\d{2,5}$") { $Port = 20140 }
+try {
+  foreach ($conn in @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)"
+    if ($proc -and $proc.Name -eq "node.exe" -and "$($proc.CommandLine)" -match "server\.mjs") {
+      Stop-Process -Id $proc.ProcessId -Force
+      Say "        Fechei o Alfred que estava aberto, para abrir a versao nova." "Green"
+      Start-Sleep -Seconds 1
+    }
+  }
+} catch {}
+
 Say ""
 Say "  Pronto! Abrindo o Alfred..." "Yellow"
-Say "  (Se o Alfred ja estava aberto, feche a janela preta antiga primeiro.)"
 Say "  Da proxima vez, clique duas vezes no atalho 'Alfred' da Area de Trabalho."
 Say "  Para a voz de IA, coloque sua chave em OPENAI_API_KEY no arquivo $Dest\alfred.env"
 Say ""
 Start-Process -FilePath $launcher -WorkingDirectory $Dest
+} # fim do & {

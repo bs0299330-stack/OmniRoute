@@ -118,3 +118,45 @@ test("Alfred uses the memory: [Memória] goes to the brain, and the briefing gre
     "Bom dia, mestre Bruno. Hoje é domingo, 3 de maio, e são 7 horas em ponto. Não se esqueça: hoje é aniversário da sua mãe. E hoje é o seu aniversário! Meus parabéns, mestre. Tenha um excelente dia, mestre."
   );
 });
+
+test("questions and loose sentences teach nothing; bad names are refused", () => {
+  for (const t of [
+    "minha mãe é a melhor do mundo",
+    "meu nome e meu sobrenome são difíceis",
+    "você acha que eu gosto de futebol?",
+    "você acha que eu gosto de futebol",
+    "eu não gosto muito disso",
+    "meu filme favorito é qual?",
+    "lembra que eu te falei do meu pai?",
+    "meu nome é difícil de falar",
+  ]) {
+    assert.deepEqual(extractFacts(t), [], t);
+  }
+  assert.deepEqual(extractFacts("anota que o carro é na oficina"), [{ kind: "fact", text: "O senhor pediu para lembrar: o carro é na oficina" }]);
+  assert.deepEqual(extractFacts("meu nome é bruno silva"), [{ kind: "name", value: "Bruno Silva" }]);
+});
+
+test("forget matches whole words and other verb forms, never the user's name by accident", () => {
+  const m = openMemory(join(dir, "forget.json"));
+  for (const t of ["meu nome é Bruno", "eu moro em Cabixi", "eu trabalho com vendas", "eu gosto de banana", "minha esposa se chama Ana"]) m.learn(t);
+  assert.equal(m.forget("eu moro em Cabixi"), 1);
+  assert.equal(m.forget("eu trabalho com vendas"), 1);
+  assert.equal(m.forget("o nome da minha esposa"), 1);
+  assert.equal(m.name, "Bruno", "'o nome da minha esposa' is not the user's name");
+  assert.equal(m.forget("Ana"), 0, "'Ana' does not erase 'banana'");
+  assert.deepEqual(m.facts, ["Gosta de banana"]);
+  assert.equal(m.forget("o meu nome"), 1);
+  assert.equal(m.name, "");
+});
+
+test("a memory file that cannot be written never breaks the conversation", () => {
+  const m = openMemory(join(dir, "no-such-folder", "m.json"));
+  const err = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(m.learn("eu gosto de pizza"), 1);
+  } finally {
+    console.error = err;
+  }
+  assert.deepEqual(m.facts, ["Gosta de pizza"], "kept in memory meanwhile");
+});

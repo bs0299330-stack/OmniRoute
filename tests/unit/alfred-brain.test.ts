@@ -452,3 +452,46 @@ test("local brain + internet leve: says it is searching, looks up, then answers 
     ollama.close();
   }
 });
+
+test("what Alfred remembers never triggers a web lookup (only the user's own words count)", async () => {
+  const { createServer } = await import("node:http");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { streamReply } = await import("../../contrib/alfred/brain.mjs");
+  const ollama = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end('data: {"choices":[{"delta":{"content":"Pois não."}}]}\n\ndata: [DONE]\n\n');
+    });
+  });
+  await new Promise<void>((resolve) => ollama.listen(0, "127.0.0.1", () => resolve()));
+  const { port } = ollama.address() as { port: number };
+  const file = join(mkdtempSync(join(tmpdir(), "alfred-mem-")), "m.json");
+  writeFileSync(file, JSON.stringify({ name: "Bruno", facts: [{ kind: "fact", text: "Não gosta de chuva" }, { kind: "fact", text: "Trabalha na Petrobras" }] }));
+  const realFetch = globalThis.fetch;
+  const asked: string[] = [];
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    if (!String(url).startsWith("http://127.0.0.1")) {
+      asked.push(String(url));
+      return new Response("{}", { status: 404 });
+    }
+    return realFetch(url, init);
+  }) as typeof fetch;
+  process.env.ALFRED_QUIET = "1";
+  try {
+    const config = loadConfig({ ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1`, ALFRED_MEMORY: file, ALFRED_PC: "off" });
+    const pieces: unknown[] = [];
+    for await (const p of streamReply(config, "local", [{ role: "user", content: "me conta uma piada" }])) pieces.push(p);
+    assert.deepEqual(pieces, ["Pois não."], "no 'searching the weather' because of 'chuva' in the memory");
+    assert.deepEqual(asked, []);
+    pieces.length = 0;
+    for await (const p of streamReply(config, "local", [{ role: "user", content: "quem foi Santos Dumont?" }])) pieces.push(p);
+    assert.deepEqual(pieces[0], { status: { tool: "search", detail: "Santos Dumont" } });
+  } finally {
+    globalThis.fetch = realFetch;
+    ollama.closeAllConnections();
+    ollama.close();
+  }
+});

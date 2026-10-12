@@ -162,6 +162,11 @@ export async function startClapListener({ onDoubleClap, sensitivity = "media" })
   const moduleUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "text/javascript" }));
   try {
     await ctx.audioWorklet.addModule(moduleUrl);
+  } catch {
+    // the detector could not load: let go of the microphone instead of keeping it open for nothing
+    for (const track of stream.getTracks()) track.stop();
+    ctx.close();
+    throw { code: "unsupported" };
   } finally {
     URL.revokeObjectURL(moduleUrl);
   }

@@ -174,7 +174,9 @@
         },
       };
 
-      let history = store.get("history", []);
+      const MAX_SENT = 40; // mensagens da conversa enviadas ao cérebro (o servidor também corta)
+      let history = store.get("history", []).slice(-MAX_SENT);
+      let answering = null; // AbortController da resposta em andamento
       let token = store.get("token", "");
       // Link do celular (--tunel): a senha vem em #token=… e sai da barra de endereço em seguida.
       const linkToken = location.hash.match(/(?:^#|&)token=([^&]+)/);
@@ -234,6 +236,8 @@
           source.connect(analyser);
           analyser.connect(audioCtx.destination);
           orb.attachAnalyser(analyser);
+          const off = () => orb.detachAnalyser(analyser);
+          for (const ev of ["ended", "pause", "error"]) audio.addEventListener(ev, off);
         } catch {}
       }
 
@@ -290,6 +294,8 @@
           const res = await fetch("api/briefing", { headers: authHeaders(), signal: AbortSignal.timeout(15000) });
           const { text } = await res.json();
           if (!res.ok || !text) throw new Error("briefing " + res.status);
+          // a conversa começou enquanto o bom dia era montado: fica para a próxima abertura
+          if (busy || voiceSession || speaker.speaking || intro || listening === "command") return;
           store.set("briefing", today);
           speaker.sayAll(text);
         } catch {
@@ -444,8 +450,11 @@
         setStatus("");
         settle();
         const chunker = speaker.chunker();
+        // Esc (ou o clique no globo) corta a resposta inteira, inclusive o que ainda vai chegar.
+        const stop = new AbortController();
+        answering = stop;
         const say = (pieces) => {
-          if ($("speak").checked) for (const p of pieces) speaker.say(p);
+          if ($("speak").checked && !stop.signal.aborted) for (const p of pieces) speaker.say(p);
         };
 
         history.push({ role: "user", content: text });
@@ -458,7 +467,8 @@
           const res = await fetch("api/chat", {
             method: "POST",
             headers: { "content-type": "application/json", ...authHeaders() },
-            body: JSON.stringify({ messages: history }),
+            body: JSON.stringify({ messages: history.slice(-MAX_SENT) }),
+            signal: stop.signal,
           });
           if (res.status === 401) {
             token = window.prompt("Token de acesso do Alfred:") || "";
@@ -500,13 +510,23 @@
           say(chunker.flush());
           setRichText(entry, full);
           history.push({ role: "assistant", content: full || "(sem resposta)" });
-          store.set("history", history.slice(-40));
+          history = history.slice(-MAX_SENT);
+          store.set("history", history);
         } catch (err) {
+          if (stop.signal.aborted) {
+            // interrompido: fica o que ele já tinha dito
+            setRichText(entry, full || "(interrompido)");
+            history.push({ role: "assistant", content: full || "(interrompido)" });
+            history = history.slice(-MAX_SENT);
+            store.set("history", history);
+            return;
+          }
           history.pop();
           entry.closest(".entry").remove();
           addEntry("note", err.message);
           phrase("erro"); // o motivo fica no histórico do menu (tecla M)
         } finally {
+          if (answering === stop) answering = null;
           busy = false;
           settle();
           scheduleListening();
@@ -695,6 +715,7 @@
         try {
           r.start();
         } catch {
+          retryListening("O microfone não abriu; tento de novo em 30 segundos.");
           return;
         }
         rec = r;
@@ -718,6 +739,7 @@
       }
 
       function interrupt() {
+        answering?.abort();
         stopIntro();
         speaker.cancel();
         settle();
@@ -745,8 +767,10 @@
         unlockAudio();
         if (wasLocked) return; // esse clique só ligou o som (e o “Alfred a postos”)
         if (intro) return stopIntro();
-        if (voiceSession) endVoiceSession();
-        else startVoiceSession();
+        if (voiceSession) {
+          interrupt(); // encerrar a conversa também corta a resposta em andamento
+          endVoiceSession();
+        } else startVoiceSession();
       });
       $("wake").addEventListener("change", (e) => {
         store.set("toggle:listen", e.target.checked);
@@ -905,6 +929,7 @@
         return new Promise((resolve) => {
           const done = () => {
             if (!intro || intro.theme !== theme) return;
+            orb.detachAnalyser(analyser);
             intro = null;
             settle();
             resolve();
@@ -975,7 +1000,13 @@
           rec.stop();
         }
       });
-      document.addEventListener("pointerdown", unlockAudio, { once: true });
+      // O primeiro toque em qualquer lugar libera o som; no globo, quem libera é o próprio clique
+      // dele (assim esse clique só liga o som e não corta o “Alfred a postos”).
+      document.addEventListener("pointerdown", function firstTouch(e) {
+        if (e.target === $("orb")) return;
+        document.removeEventListener("pointerdown", firstTouch);
+        unlockAudio();
+      });
 
       $("reset").addEventListener("click", () => {
         interrupt();

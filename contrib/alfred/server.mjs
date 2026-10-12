@@ -24,6 +24,7 @@ import {
   buildTunnelArgs,
   extractTunnelUrl,
   isAuthorized,
+  isOwnRequest,
   loadConfig,
   statusLabel,
   ttsLabel,
@@ -59,6 +60,10 @@ function getBrain() {
     brainFound = info.found;
     // The local AI stays loaded, so answers never wait for the model to load.
     if (info.found && info.brain === "local") stopWarm ??= keepLocalWarm(config);
+    else if (stopWarm) {
+      stopWarm(); // "auto" moved to another brain: stop keeping the local AI loaded
+      stopWarm = null;
+    }
     return (brain = info.brain);
   });
   return brainReady;
@@ -127,8 +132,10 @@ async function handleTts(req, res) {
   const controller = new AbortController();
   res.on("close", () => controller.abort());
   const timer = setTimeout(() => controller.abort(), 30000);
+  // This request's settings: another request may turn the AI voice off while this one runs.
+  const settings = { ...config };
   const call = (model) => {
-    const tts = buildTtsRequest(config, check.text, check.voice, "mp3", model);
+    const tts = buildTtsRequest(settings, check.text, check.voice, "mp3", model);
     return fetch(tts.url, { method: "POST", headers: tts.headers, body: JSON.stringify(tts.body), signal: controller.signal });
   };
   let upstream;
@@ -249,14 +256,22 @@ async function handleChat(req, res) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", "http://localhost");
   try {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    // Only Alfred's own page may use Alfred: no other site open in the browser (sent here by
+    // the browser or through a DNS trick) can talk to him, change his memory or turn off the PC.
+    if (!isOwnRequest(req.headers, { tunnel: wantTunnel })) return sendJson(res, 403, { error: "Origem não permitida." });
+    if (req.method === "POST" && !/^application\/json\b/i.test(req.headers["content-type"] ?? "")) {
+      return sendJson(res, 415, { error: "Envie JSON." });
+    }
     if (req.method === "GET" && STATIC_FILES[url.pathname]) {
       return await serveStatic(res, STATIC_FILES[url.pathname]);
     }
     const phrase = req.method === "GET" ? PHRASE_FILE.exec(url.pathname) : null;
     if (phrase) return await servePhrase(res, phrase[1]);
     if (req.method === "GET" && url.pathname === "/api/health") {
+      // Without the token (tunnel link), only "it is up and asks for a token".
+      if (!isAuthorized(config, req.headers.authorization)) return sendJson(res, 200, { ok: true, auth: true });
       await getBrain();
       return sendJson(res, 200, {
         ok: true,
@@ -391,6 +406,9 @@ server.on("error", (err) => {
   }
   process.exit(1);
 });
+
+// A bug in one request must never take Alfred down: log it and keep serving.
+process.on("unhandledRejection", (err) => console.error("[alfred] unexpected error:", err));
 
 server.listen(config.port, config.host, () => {
   const exposed = config.host === "0.0.0.0" || config.host === "::";

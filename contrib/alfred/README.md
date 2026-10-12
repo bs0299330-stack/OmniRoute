@@ -40,8 +40,10 @@ Ele baixa o Alfred para `Documentos\Alfred`, instala o Node.js (se faltar, pelo 
 atalho **Alfred** na Área de Trabalho e já abre o Alfred no navegador. Rodar o mesmo comando de
 novo **atualiza** o Alfred e mantém o seu `alfred.env`.
 
-**Sem o comando:** baixe o `Alfred.zip`, clique com o botão direito → **Extrair tudo** (por
-exemplo em `Documentos`), entre em `Alfred\windows` e dê clique duplo em `iniciar-alfred.cmd`.
+**Sem o comando:** na página do repositório no GitHub, escolha o ramo
+`claude/alfred-virtual-assistant-awv48m`, clique em **Code → Download ZIP**, clique com o botão
+direito no arquivo → **Extrair tudo**, entre em `contrib\alfred\windows` e dê clique duplo em
+`iniciar-alfred.cmd`.
 Se o Windows avisar "O Windows protegeu o computador", clique em **Mais informações → Executar
 assim mesmo** (acontece com qualquer arquivo baixado da internet).
 
@@ -64,9 +66,9 @@ cd Alfred; git sparse-checkout set contrib/alfred
 | `diagnostico.cmd`            | Testa o cérebro, a voz e o microfone e diz exatamente o que falta     |
 
 A janela preta é o Alfred rodando: **fechar a janela desliga o Alfred**. Na primeira vez os
-atalhos criam o `alfred.env`. Abra no Bloco de Notas e preencha `OPENAI_API_KEY=` para ter a voz
-de IA. Sem nada configurado, o cérebro é o **Claude Code** do seu PC (se você usa o `claude` no
-terminal), ou o OmniRoute, se estiver rodando.
+atalhos criam o `alfred.env`. Sem cérebro escolhido, o Alfred usa o primeiro que encontrar, nesta
+ordem: o OmniRoute (se estiver rodando), a IA do PC (Ollama), o Gemini e a OpenAI (se houver
+chave no `alfred.env`) e o Claude Code do seu PC.
 
 No Mac ou no Linux: instale o Node 22, baixe com o comando `git` acima e rode
 `node contrib/alfred/server.mjs` (ou `--tunel`, ou `cli.mjs`).
@@ -223,7 +225,7 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "Não é possível acessar esse site" em `localhost`    | O servidor não está rodando **nesse aparelho**. `localhost` é sempre o próprio aparelho: rode o passo 3 no mesmo PC e mantenha o terminal aberto. |
 | Abre no PC mas não no celular                        | Use `node contrib/alfred/server.mjs --tunel` e abra o link no celular. Veja "Falar com o Alfred pelo celular".                                    |
-| `❌ A porta 20140 já está em uso`                     | Rode com outra porta: `ALFRED_PORT=20141 node contrib/alfred/server.mjs`.                                                                          |
+| `❌ A porta 20140 já está em uso`                     | O Alfred já está aberto (veja a barra de tarefas) ou outro programa usa a porta. Para trocar, coloque `ALFRED_PORT=20141` no `alfred.env`; os atalhos abrem a porta nova. |
 | Página abre, mas responde "Não consegui falar com o OmniRoute" | Inicie o OmniRoute, ou use outro cérebro: `GEMINI_API_KEY` (grátis), `ALFRED_BRAIN=claude` (Claude Code) ou `OPENAI_API_KEY`. |
 | "Não consegui falar com a IA do PC (Ollama)"         | Abra o **Ollama** pelo menu Iniciar e pergunte de novo.                                                                                            |
 | "A IA do PC ainda não tem o modelo …"                | Rode no PowerShell o `ollama pull …` que a mensagem mostra.                                                                                        |
@@ -477,7 +479,7 @@ ele envia sozinho.
 | `ALFRED_TTS_VOICE`     | `onyx`                       | Voz padrão (OpenAI: onyx, ash, echo, cedar…)     |
 | `ALFRED_TTS_PROVIDER`  | automático                   | `elevenlabs`, `openai`, `omniroute` ou `off`     |
 | `ALFRED_TTS_MODEL`     | `gpt-4o-mini-tts` (OpenAI)   | Modelo de voz (obrigatório com `omniroute`)      |
-| `ALFRED_TTS_SPEED`     | `1`                          | Velocidade, só para `tts-1`/`tts-1-hd`           |
+| `ALFRED_TTS_SPEED`     | `1`                          | Velocidade: `tts-1`/`tts-1-hd` e ElevenLabs      |
 | `ALFRED_TTS_INSTRUCTIONS` | mordomo refinado          | Direção de estilo do `gpt-4o-mini-tts`           |
 | `ALFRED_USER_NAME`     | —                            | Como o Alfred deve chamar você                   |
 | `ALFRED_SYSTEM_PROMPT` | persona de mordomo em pt-BR  | Substitui a personalidade inteira                |
@@ -488,7 +490,7 @@ ele envia sozinho.
 Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Ollama | Gemini | OpenAI | claude -p
           ▲                                       │
           ├────────── SSE {text} ◀────────────────┘
-          └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ OpenAI ou OmniRoute /audio/speech (opcional)
+          └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ ElevenLabs, OpenAI ou OmniRoute (opcional)
 ```
 
 - `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE, comando do Claude

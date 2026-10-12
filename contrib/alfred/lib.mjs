@@ -299,7 +299,9 @@ export function modelSearchesWeb(model) {
 
 /**
  * Incremental parser for OpenAI-style SSE (`data: {...}` lines).
- * Feed raw text chunks; returns the text deltas found and whether `[DONE]` was seen.
+ * Feed raw text chunks (call it once more with `"\n"` at the end of the stream to read a last line
+ * without a newline); returns the text deltas found, whether `[DONE]` was seen, and the message of
+ * an error sent inside the stream (`data: {"error": …}`), if any.
  */
 export function createSseParser() {
   let buffer = "";
@@ -309,6 +311,7 @@ export function createSseParser() {
     buffer = lines.pop() ?? "";
     const deltas = [];
     let done = false;
+    let error = "";
     for (const raw of lines) {
       const line = raw.trim();
       if (!line.startsWith("data:")) continue;
@@ -319,13 +322,14 @@ export function createSseParser() {
       }
       try {
         const json = JSON.parse(data);
+        if (json?.error) error ||= String(json.error.message ?? json.error).slice(0, 300) || "erro";
         const text = json?.choices?.[0]?.delta?.content;
         if (typeof text === "string" && text) deltas.push(text);
       } catch {
         // Ignore keep-alive comments or partial/non-JSON lines.
       }
     }
-    return { deltas, done };
+    return { deltas, done, error };
   };
 }
 
@@ -625,6 +629,34 @@ export function isAuthorized(config, headerValue) {
   const expected = Buffer.from(`Bearer ${config.accessToken}`);
   const got = Buffer.from(String(headerValue ?? ""));
   return got.length === expected.length && timingSafeEqual(got, expected);
+}
+
+/**
+ * True when a request comes from Alfred's own page. The Host must be this PC (localhost, an IP
+ * address, a plain PC name, `.local`) or, with the tunnel, the trycloudflare link; when the
+ * browser says which site sent the request (Origin), it must be that same address. This stops
+ * other web pages, and DNS rebinding, from using Alfred.
+ */
+export function isOwnRequest(headers = {}, { tunnel = false } = {}) {
+  const host = String(headers.host ?? "").toLowerCase();
+  let name;
+  try {
+    name = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+  if (!host || !name) return false;
+  const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.startsWith("[");
+  const ok = ip || name === "localhost" || !name.includes(".") || name.endsWith(".local") || (tunnel && name.endsWith(".trycloudflare.com"));
+  if (!ok) return false;
+  const origin = headers.origin;
+  if (origin === undefined) return true;
+  try {
+    const from = new URL(origin).host;
+    return from === host || (tunnel && from.endsWith(".trycloudflare.com")); // the phone link
+  } catch {
+    return false; // "null" (sandboxed pages, file://) or garbage
+  }
 }
 
 // ---------- Tunnel (falar com o Alfred pelo celular) ----------

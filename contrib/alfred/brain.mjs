@@ -14,11 +14,12 @@ import {
   liteWebSystemPrompt,
   usesLiteWeb,
 } from "./lib.mjs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createMemoryControl, openMemory } from "./memory.mjs";
 import { createPcControl } from "./pc.mjs";
 import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
+import { SOURCES_HEADING } from "./public/voice.mjs";
 
 // Voice commands for the PC ("abre o YouTube", "aumenta o volume", "desliga o PC"…), shared by
 // the page and the terminal; it keeps the one pending "tem certeza?" confirmation.
@@ -28,8 +29,9 @@ let pcControl = null;
 const memories = new Map();
 /** The memory for this config (null when ALFRED_MEMORY=off). */
 export function getMemory(config) {
-  if (config.memory === "off") return null;
-  const file = config.memory || join(dirname(fileURLToPath(import.meta.url)), "memoria.json");
+  if (String(config.memory).toLowerCase() === "off") return null;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const file = config.memory ? resolve(here, config.memory) : join(here, "memoria.json");
   if (!memories.has(file)) {
     const memory = openMemory(file);
     memories.set(file, { memory, control: createMemoryControl(memory) });
@@ -83,13 +85,29 @@ const LOCAL_OFF = "Não consegui falar com a IA do PC (Ollama). Abra o Ollama pe
 const localMissing = (model) =>
   `A IA do PC ainda não tem o modelo ${model}. No PowerShell, rode: ollama pull ${model}`;
 
+/**
+ * Stops a child process. Started through cmd.exe (a bare `claude` on Windows), killing the child
+ * only ends cmd.exe and leaves Claude running, so the whole tree goes (taskkill, fixed arguments).
+ */
+function stopProcess(child, shell) {
+  if (!child || child.exitCode !== null) return;
+  if (shell && process.platform === "win32" && child.pid) {
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {});
+      return;
+    } catch {}
+  }
+  child.kill();
+}
+
 /** Runs `<bin> --version`; resolves the version line or null. */
 function claudeVersion(config, bin) {
   return new Promise((resolve) => {
     let child;
+    const shell = buildClaudeCommand(config, process.platform, bin).shell;
     try {
       child = spawn(bin, ["--version"], {
-        shell: buildClaudeCommand(config, process.platform, bin).shell,
+        shell,
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
       });
@@ -99,7 +117,7 @@ function claudeVersion(config, bin) {
     let out = "";
     child.stdout.on("data", (d) => (out += d));
     const timer = setTimeout(() => {
-      child.kill();
+      stopProcess(child, shell);
       resolve(null);
     }, 15000);
     child.on("error", () => {
@@ -114,13 +132,15 @@ function claudeVersion(config, bin) {
 }
 
 let claudeLookup = null;
-/** Finds a working Claude Code: `{ bin, version }` or null. Memoized per process. */
+/** Finds a working Claude Code: `{ bin, version }` or null. Only a success is remembered, so a
+ * Claude Code installed while Alfred runs is found on the next try. */
 export function findClaude(config) {
   claudeLookup ??= (async () => {
     for (const bin of claudeCandidates(config)) {
       const version = await claudeVersion(config, bin);
       if (version) return { bin, version };
     }
+    claudeLookup = null;
     return null;
   })();
   return claudeLookup;
@@ -193,11 +213,20 @@ async function* streamChatCompletions(config, brain, messages, signal, found = n
   }
   const parse = createSseParser();
   const decoder = new TextDecoder();
+  const read = (text) => {
+    const out = parse(text);
+    if (out.error) {
+      log(`[alfred] ${brain} stream error:`, out.error);
+      throw new BrainError(`${BRAIN_LABELS[brain]} respondeu com erro no meio da resposta.`, out.error);
+    }
+    return out;
+  };
   for await (const chunk of res.body) {
-    const { deltas, done } = parse(decoder.decode(chunk, { stream: true }));
+    const { deltas, done } = read(decoder.decode(chunk, { stream: true }));
     for (const text of deltas) yield text;
     if (done) return;
   }
+  for (const text of read(decoder.decode() + "\n").deltas) yield text; // a last line without "\n"
 }
 
 function claudeFailure(detail) {
@@ -227,7 +256,7 @@ async function* streamClaude(config, messages, signal) {
   } catch {
     throw new BrainError("Não consegui abrir o Claude Code.");
   }
-  const onAbort = () => child.kill();
+  const onAbort = () => stopProcess(child, cmd.shell);
   signal?.addEventListener("abort", onAbort, { once: true });
 
   let spawnError = null;
@@ -273,7 +302,7 @@ async function* streamClaude(config, messages, signal) {
     }
   } finally {
     signal?.removeEventListener("abort", onAbort);
-    if (child.exitCode === null) child.kill();
+    stopProcess(child, cmd.shell);
   }
 }
 
@@ -303,11 +332,13 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
       `${BRAIN_LABELS[brain]} ficou ${Math.round(idleMs / 1000)} s sem responder. Rode o diagnóstico para ver o motivo.`
     );
   arm();
+  // What the user said, before anything (the memory block) is added to it.
+  const said = messages[messages.length - 1]?.content;
   try {
     // PC commands are answered by Alfred himself, without the brain.
     if (config.pc !== "off") {
       pcControl ??= createPcControl();
-      const done = pcControl.handle(messages[messages.length - 1]?.content);
+      const done = pcControl.handle(said);
       if (done) {
         yield done;
         return;
@@ -317,9 +348,9 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     // other message is read for new facts, and what Alfred knows goes along to the brain.
     const mem = getMemory(config);
     if (mem) {
-      const said = mem.control.handle(messages[messages.length - 1]?.content);
-      if (said) {
-        yield said;
+      const reply = mem.control.handle(said);
+      if (reply) {
+        yield reply;
         return;
       }
       messages = withMemory(messages, mem.memory.block());
@@ -327,7 +358,7 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     let found = null;
     // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"
     // in free public services first, and hand the result to the brain.
-    const wanted = config.web !== "off" && usesLiteWeb(config, brain) ? detectLookup(messages[messages.length - 1]?.content) : null;
+    const wanted = config.web !== "off" && usesLiteWeb(config, brain) ? detectLookup(said) : null;
     if (wanted) {
       yield { status: { tool: "search", detail: lookupLabel(wanted, config) } };
       found = await lookup(wanted, { city: config.city });
@@ -341,15 +372,17 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
       brain === "claude"
         ? streamClaude(config, messages, ctl.signal)
         : streamChatCompletions(config, brain, messages, ctl.signal, found);
-    let answered = false;
+    let answer = "";
     for await (const piece of inner) {
       arm();
-      if (typeof piece === "string" && piece.trim()) answered = true;
+      if (typeof piece === "string") answer += piece;
       yield piece;
     }
     if (timedOut) throw timeoutError();
     // "Cuidar de você" (care.mjs): rest late at night, water on a hot day — rarely, after an answer.
-    const caring = answered ? care?.note({ weather: wanted?.kind === "weather" ? found?.data : null }) : "";
+    // Not after a "Fontes:" list (the voice stops there), and only today's weather counts.
+    const today = wanted?.kind === "weather" && !wanted.day ? found?.data : null;
+    const caring = answer.trim() && !SOURCES_HEADING.test(answer) ? care?.note({ weather: today }) : "";
     if (caring) yield ` ${caring}`;
   } catch (err) {
     if (timedOut) throw timeoutError();

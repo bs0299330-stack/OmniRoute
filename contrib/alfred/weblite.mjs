@@ -18,31 +18,37 @@ const CURRENCIES = [
   [/\blibras?\b/i, "GBP", "libra"],
   [/peso argentino/i, "ARS", "peso argentino"],
 ];
-const MONEY = /cota[cç][aã]o|c[aâ]mbio|quanto (est[aá]|t[aá]|custa|vale)|pre[cç]o do|valor do|d[oó]lar|bitcoin|\beuro/i;
+// Money needs a currency ("quanto custa um iPhone?" and "câmbio automático" are not rates).
+const MONEY = /cota[cç][aã]o d[oa]s? (?:moedas?|hoje|dia)|^(?:qual (?:[eé] )?a )?cota[cç][aã]o[?.!]*$/i;
 const WEATHER =
-  /previs[aã]o do tempo|como (est[aá]|vai estar|vai ficar|fica|t[aá]) o (tempo|clima)|\bclima\b|vai chover|chov|\bchuva|temperatura|quantos graus|faz(endo)? (frio|calor)|(est[aá]|t[aá]) (frio|quente|calor)/i;
+  /previs[aã]o do tempo|como (est[aá]|vai estar|vai ficar|fica|t[aá]) o (tempo|clima)|\bclima\b|vai chover|chov|\bchuva|temperatura (?:de |para |pra )?(?:hoje|agora|amanh[aã]|l[aá] fora|em\b|no\b|na\b)|qual (?:[eé] )?a temperatura[?.!]*$|quantos graus|faz(endo)? (frio|calor)|(est[aá]|t[aá]) (frio|quente|calor)/i;
+// …but not the oven, a fever or the computer ("temperatura ideal para assar um bolo").
+const NOT_WEATHER = /\b(forno|assar|bolo|febre|corpo|beb[eê]|piscina|geladeira|freezer|motor|cpu|processador|computador|placa de v[ií]deo)\b/i;
 const NEWS = /\bnot[ií]cias?\b|\bmanchetes?\b|o que (est[aá] )?(aconteceu|acontecendo) (hoje|no brasil|no mundo)|novidades de hoje/i;
 const WHO = /^(?:quem (?:é|e|foi|era)|o que (?:é|e|foi|significa)|onde fica|quando (?:foi|nasceu|morreu))\s+(.{2,80}?)[?.!]*$/i;
 // "Alfred," at the start is the wake word, not part of the question.
 const WAKE = /^(?:(?:ei|ok|olá|ola|oi)[\s,]+)?alfredo?[\s,.!]+/i;
 const CITY = /\b(?:em|no|na|para|pra)\s+((?:[A-ZÀ-Ý][\wÀ-ÿ'-]*)(?:\s+(?:(?:d[aeo]s?|del|di)\s+)?[A-ZÀ-Ý][\wÀ-ÿ'-]*)*)/;
+// a city typed in lowercase ("clima em cacoal"): only after "em/para/pra", and not "em casa"
+const CITY_LOWER = /\b(?:em|para|pra)\s+([a-zà-ÿ][a-zà-ÿ'-]{2,}(?:\s+(?:d[aeo]s?\s+)?[a-zà-ÿ][a-zà-ÿ'-]{2,})?)/;
+const NOT_A_CITY = /^(casa|hoje|amanh[aã]|agora|depois|aqui|l[aá]|cidade|rua|minha|sua|nossa|esta|essa|o|a|os|as|um|uma|mim|voc[eê])\b/i;
+const NOT_A_SUBJECT = /^(voc[eê]|vc|tu|isso|isto|aquilo|que\b|eu\b|o senhor|alfredo?\b)/i;
 
 /** What to look up for this question: `{ kind, … }` or null. */
 export function detectLookup(text) {
   const q = String(text ?? "").trim().replace(WAKE, "");
   if (!q) return null;
-  if (WEATHER.test(q)) {
-    const city = q.match(CITY)?.[1]?.trim() ?? "";
+  if (WEATHER.test(q) && !NOT_WEATHER.test(q)) {
+    const lower = q.match(CITY_LOWER)?.[1]?.trim() ?? "";
+    const city = q.match(CITY)?.[1]?.trim() || (NOT_A_CITY.test(lower) ? "" : lower.replace(/\s+(hoje|amanh[aã]|agora)$/i, ""));
     const day = /depois de amanh[aã]/i.test(q) ? 2 : /amanh[aã]/i.test(q) ? 1 : 0;
     return { kind: "weather", city, day };
   }
-  if (MONEY.test(q)) {
-    const codes = CURRENCIES.filter(([re]) => re.test(q)).map(([, code]) => code);
-    return { kind: "money", codes: codes.length ? codes : ["USD"] };
-  }
+  const codes = CURRENCIES.filter(([re]) => re.test(q)).map(([, code]) => code);
+  if (codes.length || MONEY.test(q)) return { kind: "money", codes: codes.length ? codes : ["USD"] };
   if (NEWS.test(q)) return { kind: "news" };
   const who = q.match(WHO);
-  if (who) return { kind: "wiki", query: who[1].trim() };
+  if (who && !NOT_A_SUBJECT.test(who[1].trim())) return { kind: "wiki", query: who[1].trim() };
   return null;
 }
 
@@ -346,13 +352,13 @@ export function buildBriefing(now = new Date(), { weather = null, news = null, n
   const date = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
   const time = spokenTime(now);
   const sir = name ? `mestre ${name.split(" ")[0]}` : "mestre";
-  const parts = [`${greeting}, ${sir}. Hoje é ${date}, e ${/^(meia-noite|meio-dia)/.test(time) ? "é" : "são"} ${time}.`];
+  const parts = [`${greeting}, ${sir}. Hoje é ${date}, e ${/^(meia-noite|meio-dia|1 hora)/.test(time) ? "é" : "são"} ${time}.`];
   for (const b of birthdays) {
     parts.push(b.who ? `Não se esqueça: hoje é aniversário ${ofWhom(b.who)}.` : "E hoje é o seu aniversário! Meus parabéns, mestre.");
   }
   const w = weather?.data;
   if (w?.day || w?.current) {
-    const now_ = w.current ? `agora faz ${w.current.temp} graus, com ${w.current.words}. ` : "";
+    const now_ = w.current ? `agora faz ${w.current.temp} ${Math.abs(w.current.temp) === 1 ? "grau" : "graus"}, com ${w.current.words}. ` : "";
     const day = w.day
       ? `${w.current ? "Para" : "para"} hoje, ${w.day.words}, mínima de ${w.day.min} e máxima de ${w.day.max} graus` +
         (w.day.rain >= 30 ? `, com ${w.day.rain} por cento de chance de chuva.` : ".")
@@ -361,7 +367,7 @@ export function buildBriefing(now = new Date(), { weather = null, news = null, n
     if (isHot(w)) parts.push("Vai fazer calor, mestre: não se esqueça de beber bastante água.");
   }
   const titles = (news?.titles ?? []).slice(0, 3);
-  if (titles.length) parts.push(`Nas notícias, segundo a ${news.source}: ${titles.map((t) => t.replace(/[.!?…]+$/, "")).join(". ")}.`);
+  if (titles.length) parts.push(`Nas notícias, segundo ${/^g1$/i.test(news.source) ? "o" : "a"} ${news.source}: ${titles.map((t) => t.replace(/[.!?…]+$/, "")).join(". ")}.`);
   if (curiosity) {
     const year = curiosity.year < 0 ? `${-curiosity.year} antes de Cristo` : curiosity.year;
     parts.push(`Uma curiosidade: neste mesmo dia, em ${year}: ${curiosity.text}`);

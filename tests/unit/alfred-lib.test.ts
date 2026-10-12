@@ -75,9 +75,27 @@ test("buildChatRequest prepends the system prompt with date and user name", () =
 test("createSseParser handles deltas split across chunks and [DONE]", () => {
   const feed = createSseParser();
   const a = feed('data: {"choices":[{"delta":{"content":"Bom "}}]}\n\ndata: {"choi');
-  assert.deepEqual(a, { deltas: ["Bom "], done: false });
+  assert.deepEqual(a, { deltas: ["Bom "], done: false, error: "" });
   const b = feed('ces":[{"delta":{"content":"dia"}}]}\n\n: keep-alive\ndata: [DONE]\n\n');
-  assert.deepEqual(b, { deltas: ["dia"], done: true });
+  assert.deepEqual(b, { deltas: ["dia"], done: true, error: "" });
+  const c = createSseParser()('data: {"error":{"message":"upstream exploded"}}\n');
+  assert.equal(c.error, "upstream exploded", "an error sent inside the stream is reported");
+});
+
+test("isOwnRequest: only Alfred's own page (this PC, the LAN, the tunnel link) may call the API", async () => {
+  const { isOwnRequest } = await import("../../contrib/alfred/lib.mjs");
+  assert.equal(isOwnRequest({ host: "localhost:20140" }), true);
+  assert.equal(isOwnRequest({ host: "127.0.0.1:20140", origin: "http://127.0.0.1:20140" }), true);
+  assert.equal(isOwnRequest({ host: "192.168.0.10:20140", origin: "http://192.168.0.10:20140" }), true);
+  assert.equal(isOwnRequest({ host: "meu-pc:20140" }), true);
+  assert.equal(isOwnRequest({ host: "localhost:20140", origin: "https://evil.example" }), false, "another site (CSRF)");
+  assert.equal(isOwnRequest({ host: "localhost:20140", origin: "null" }), false);
+  assert.equal(isOwnRequest({ host: "attacker.example:20140" }), false, "DNS rebinding");
+  assert.equal(isOwnRequest({}), false);
+  const tunnel = { host: "abc-def.trycloudflare.com", origin: "https://abc-def.trycloudflare.com" };
+  assert.equal(isOwnRequest(tunnel), false, "the tunnel host only counts with --tunel");
+  assert.equal(isOwnRequest(tunnel, { tunnel: true }), true);
+  assert.equal(isOwnRequest({ host: "127.0.0.1:20140", origin: "https://abc.trycloudflare.com" }, { tunnel: true }), true);
 });
 
 test("isAuthorized only enforces when a token is configured", () => {

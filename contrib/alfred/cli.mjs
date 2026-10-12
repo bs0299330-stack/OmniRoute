@@ -9,7 +9,7 @@
 // Lê contrib/alfred/alfred.env, como o servidor.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -144,7 +144,10 @@ class Voice {
     const audio = this.synthesize(text);
     audio.catch(() => {});
     this.chain = this.chain.then(async () => {
-      if (gen !== this.generation) return;
+      if (gen !== this.generation) {
+        audio.then((f) => rm(f, { force: true })).catch(() => {}); // cancelled: never played
+        return;
+      }
       let file;
       try {
         file = await audio;
@@ -240,6 +243,10 @@ class Ears {
 }
 
 let tmp = null;
+// The temporary audio folder goes away even when the window is simply closed.
+process.on("exit", () => {
+  if (tmp) rmSync(tmp, { recursive: true, force: true });
+});
 async function tempDir() {
   tmp ??= await mkdtemp(join(tmpdir(), "alfred-"));
   return tmp;

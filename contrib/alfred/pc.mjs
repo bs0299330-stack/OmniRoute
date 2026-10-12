@@ -48,60 +48,116 @@ const plain = (s) =>
     .trim();
 
 const WAKE = /^(?:(?:ei|ok|ola|oi)\s+)?alfredo?\s+/;
-const NUMBERS = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, dez: 10, quinze: 15, vinte: 20, trinta: 30, quarenta: 40, cinquenta: 50 };
+const POLITE = /^(?:por favor|pode|voce pode|da pra|consegue)\s+/;
+const QUESTION = /^(?:o que|que|como|por que|porque|quando|qual|quais|quem|onde|sera|voce sabe|e se|se eu)\b/;
+const NUMBERS = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9, dez: 10,
+  onze: 11, doze: 12, treze: 13, catorze: 14, quatorze: 14, quinze: 15, dezesseis: 16, dezessete: 17, dezoito: 18,
+  dezenove: 19, vinte: 20, trinta: 30, quarenta: 40, cinquenta: 50, sessenta: 60, noventa: 90,
+};
+const number = (words) => {
+  if (/^\d+$/.test(words)) return Number(words);
+  let total = 0;
+  for (const w of words.split(/\s+e\s+/)) {
+    if (!(w in NUMBERS)) return NaN;
+    total += NUMBERS[w];
+  }
+  return total;
+};
+const NUM = "\\d+|[a-z]+(?:\\s+e\\s+[a-z]+)?";
 
-/** "daqui a 30 minutos", "em uma hora", "daqui meia hora" → seconds, or 0 when no delay was said. */
-export function parseDelay(text) {
+/**
+ * The delay in "daqui a 30 minutos", "em uma hora e meia", "daqui a 1h", "às 22 horas" → seconds;
+ * 0 when no time was said; null when a time was said but not understood (Alfred then asks).
+ */
+export function parseDelay(text, now = new Date()) {
   const t = plain(text);
-  if (/meia hora/.test(t)) return 30 * 60;
-  const m = t.match(/(?:daqui a?|em|dentro de)\s+(\d+|[a-z]+)\s+(minutos?|horas?)/);
-  if (!m) return 0;
-  const n = /^\d+$/.test(m[1]) ? Number(m[1]) : NUMBERS[m[1]] ?? 0;
-  const seconds = m[2].startsWith("hora") ? n * 3600 : n * 60;
-  return Math.min(seconds, 24 * 3600);
+  const at = t.match(/\bas\s+(\d{1,2})(?:\s*(?:h|horas?))?(?:\s*e?\s*(\d{1,2})(?:\s*min(?:utos?)?)?)?\b/);
+  if (at && Number(at[1]) < 24 && Number(at[2] ?? 0) < 60) {
+    const when = new Date(now);
+    when.setHours(Number(at[1]), Number(at[2] ?? 0), 0, 0);
+    if (when <= now) when.setDate(when.getDate() + 1);
+    return Math.round((when - now) / 1000);
+  }
+  if (/\bmeia hora\b/.test(t) && !/\bhoras?\s+e\s+meia\b/.test(t)) return 30 * 60;
+  const m = t.match(new RegExp(`(?:daqui a?|em|dentro de)\\s+(${NUM})\\s*(minutos?|min|horas?|h)\\b(\\s+e\\s+meia)?`));
+  if (m) {
+    const n = number(m[1]);
+    if (Number.isFinite(n)) {
+      const seconds = m[2].startsWith("h") ? n * 3600 + (m[3] ? 1800 : 0) : n * 60;
+      return Math.min(seconds, 24 * 3600);
+    }
+  }
+  return /\b(daqui|dentro de|mais tarde|depois|minutos?|horas?|as \d)\b/.test(t) ? null : 0;
 }
 
 /** What the user asked the PC to do: `{ type, … }` or null (then the brain answers). */
 export function parseCommand(text) {
-  const t = plain(text).replace(WAKE, "");
-  if (!t) return null;
+  const raw = String(text ?? "");
+  // Questions and stories ("desligar o computador faz mal?", "minha mãe desliga o computador")
+  // are for the brain: only orders, said at the start of the sentence, act on the PC.
+  if (raw.includes("?")) return null;
+  const t = plain(raw).replace(WAKE, "").replace(POLITE, "");
+  if (!t || QUESTION.test(t)) return null;
 
   // shutting down (always confirmed first) and cancelling it
-  if (/cancela(r)? (o )?desligamento|nao (desliga|reinicia)|cancela(r)? (o )?reinicio/.test(t)) return { type: "cancel" };
-  if (/\b(deslig[ae]r?|desliga)\b.*\b(pc|computador|maquina)\b/.test(t)) return { type: "shutdown", restart: false, delay: parseDelay(t) };
-  if (/\breinici[ae]r?\b.*\b(pc|computador|maquina)\b/.test(t)) return { type: "shutdown", restart: true, delay: parseDelay(t) };
+  if (/^(?:cancela(?:r)?\s+(?:o\s+)?(?:desligamento|reinicio)|nao\s+(?:desliga|reinicia)(?:\s+(?:o\s+|a\s+)?(?:pc|computador|maquina))?$)/.test(t)) {
+    return { type: "cancel" };
+  }
+  // "desliga o PC", "desliga o computador daqui a 30 minutos"; "desligar o computador faz mal"
+  // is not an order: after "o computador" only a time (or "por favor") may follow
+  const off = t.match(
+    /^(deslig[ae]r?|reinici[ae]r?)\s+(?:o\s+|a\s+|meu\s+|minha\s+)?(?:pc|computador|maquina)((?:\s+(?:agora|ja|por favor|pra mim|(?:daqui|em|dentro de|as|mais tarde|depois)\b.*))*)$/
+  );
+  if (off) return { type: "shutdown", restart: off[1].startsWith("reinici"), delay: parseDelay(t) };
 
   // volume and music
-  if (/(aumenta|sobe|aumentar|mais alto).{0,12}(volume|som)|(volume|som).{0,6}mais alto/.test(t)) return { type: "key", key: "up", times: 5 };
-  if (/(abaixa|diminui|baixa|abaixar|diminuir|mais baixo).{0,12}(volume|som)|(volume|som).{0,6}mais baixo/.test(t)) {
+  if (/^(?:aumenta|aumentar|sobe|subir)\s+(?:um pouco\s+)?(?:o\s+)?(?:volume|som)\b|^(?:volume|som)\s+mais alto$/.test(t)) {
+    return { type: "key", key: "up", times: 5 };
+  }
+  if (/^(?:abaixa|abaixar|diminui|diminuir|baixa|baixar)\s+(?:um pouco\s+)?(?:o\s+)?(?:volume|som)\b|^(?:volume|som)\s+mais baixo$/.test(t)) {
     return { type: "key", key: "down", times: 5 };
   }
-  if (/\b(sem som|tira o som|desliga o som|muta|mutar|silencia|silenciar|volta o som)\b/.test(t)) return { type: "key", key: "mute", times: 1 };
-  if (/(pausa|pausar|despausa|continua|retoma|solta|toca de novo).{0,6}(a |o )?(musica|video|som)|^(pausa|play)$/.test(t)) {
+  if (/^(?:sem som|tira o som|desliga o som|muta|mutar|silencia|silenciar|volta o som)$/.test(t)) return { type: "key", key: "mute", times: 1 };
+  if (/^(?:pausa|pausar|despausa|continua|retoma|solta|toca de novo)\s+(?:a\s+|o\s+)?(?:musica|video|som)$|^(?:pausa|play)$/.test(t)) {
     return { type: "key", key: "playpause", times: 1 };
   }
-  if (/(proxima|passa (a|essa)|pula (a|essa)) (musica|faixa)|proxima$/.test(t)) return { type: "key", key: "next", times: 1 };
-  if (/(musica anterior|volta (a|uma) musica|faixa anterior)/.test(t)) return { type: "key", key: "prev", times: 1 };
+  if (/^(?:proxima|passa\s+(?:a|essa)|pula\s+(?:a|essa))(?:\s+(?:musica|faixa))?$/.test(t) && t !== "passa a" && t !== "pula a") {
+    return { type: "key", key: "next", times: 1 };
+  }
+  if (/^(?:musica anterior|faixa anterior|volta\s+(?:a|uma)\s+musica)$/.test(t)) return { type: "key", key: "prev", times: 1 };
 
-  // searching: "pesquisa receita de bolo no google", "toca jazz no youtube"
-  const search = t.match(/^(?:pesquis[ae]r?|procur[ae]r?|busca[r]?|toca|coloca|poe)\s+(?:por\s+)?(.+?)\s+no\s+(google|youtube)$/);
+  // searching: "pesquisa receita de bolo no google", "toca jazz no youtube" — the words keep
+  // their accents ("pão de queijo"), they only go into the search address
+  const words = raw
+    .toLowerCase()
+    .replace(/[.!,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:(?:ei|ok|olá|ola|oi)\s+)?alfredo?\s+/, "")
+    .replace(/^(?:por favor|pode|você pode|voce pode)\s+/, "");
+  const search = words.match(/^(?:pesquis[ae]r?|procur[ae]r?|busca[r]?|toca|coloca|p[oõ]e)\s+(?:por\s+)?(.+?)\s+no\s+(google|youtube)$/);
   if (search) return { type: "search", query: search[1], where: search[2] };
 
   // opening: "abre o youtube", "abre a calculadora", "entra no gmail"
-  const open = t.match(/^(?:abr[ae]r?|abre pra mim|entra no|entra na|entrar no|vai no|vai na|inicia|liga)\s+(?:o |a |os |as )?(.+)$/);
+  const open = t.match(/^(abr[ae]r?|abre pra mim|entra no|entra na|entrar no|vai no|vai na|inicia|liga)\s+(?:o |a |os |as )?(?:meu |minha )?(.+?)(?:\s+(?:por favor|pra mim|agora|ai))*$/);
   if (open) {
-    const name = open[1].trim();
-    const site = Object.keys(SITES).find((k) => name === k || name === `site do ${k}` || name === `${k} pra mim`);
+    const name = open[2].trim();
+    const site = Object.keys(SITES).find((k) => name === k || name === `site do ${k}`);
     if (site) return { type: "site", key: site };
     const program = Object.keys(PROGRAMS).find((k) => name === k || name.startsWith(`${k} `));
     if (program) return { type: "program", key: program };
-    if (/^(pc|computador|maquina|volume|som|musica|luz)/.test(name)) return null; // not something to open
-    return { type: "search", query: name, where: "google" }; // anything else: look it up on Google
+    // anything else is looked up on Google, but only after "abre" ("liga pra minha mãe",
+    // "vai na padaria" are not things to open)
+    if (!/^abr/.test(open[1]) || /^(pc|computador|maquina|volume|som|musica|luz|porta|janela)\b/.test(name)) return null;
+    const query = words.match(/^(?:abr[ae]r?|abre pra mim)\s+(?:o |a |os |as )?(.+?)(?:\s+(?:por favor|pra mim|agora|aí|ai))*$/)?.[1];
+    return { type: "search", query: query || name, where: "google" };
   }
   return null;
 }
 
-const YES = /^(sim|pode|pode sim|confirmo|confirma|isso|claro|tenho certeza|com certeza|pode desligar|pode reiniciar)\b/;
+// The whole reply must be a yes: "pode deixar", "claro que não" and "isso é sério?" are not.
+const YES = /^(?:sim|pode|pode sim|confirmo|confirma|isso|isso mesmo|claro|claro que sim|tenho certeza|com certeza|pode desligar|pode reiniciar)(?:\s+(?:sim|pode|mestre|alfred|alfredo|por favor))*$/;
 
 // ---------- Doing it ----------
 
@@ -132,9 +188,14 @@ const pressKey = (code, times, spawnImpl) =>
   );
 
 function spokenDelay(seconds) {
-  if (seconds % 3600 === 0) return seconds === 3600 ? "uma hora" : `${seconds / 3600} horas`;
-  const minutes = Math.round(seconds / 60);
-  return minutes === 1 ? "um minuto" : `${minutes} minutos`;
+  const total = Math.round(seconds / 60);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  const hours = h === 1 ? "uma hora" : `${h} horas`;
+  const minutes = m === 1 ? "um minuto" : `${m} minutos`;
+  if (!h) return minutes;
+  if (!m) return hours;
+  return m === 30 ? `${hours} e meia` : `${hours} e ${minutes}`;
 }
 
 /**
@@ -186,14 +247,17 @@ export function createPcControl({ platform = process.platform, spawnImpl = spawn
       const waiting = pending && pending.until > now() ? pending : null;
       pending = null;
       if (waiting) {
-        if (YES.test(plain(text).replace(WAKE, ""))) return execute(waiting.command);
-        const other = parseCommand(text);
-        if (!other) return "Tudo bem, mestre. Não vou desligar.";
-        // a different command: forget the shutdown and carry on with the new one below
+        const reply = plain(text).replace(WAKE, "");
+        if (YES.test(reply)) return execute(waiting.command);
+        if (/^(?:nao|deixa|pode deixar|esquece|cancela|melhor nao|agora nao)\b/.test(reply)) return "Tudo bem, mestre. Não vou desligar.";
+        // anything else: the shutdown is dropped and the words are handled as usual below
       }
       const cmd = parseCommand(text);
       if (!cmd) return null;
       if (platform !== "win32") return "Por enquanto só consigo mexer no computador quando ele é Windows, mestre.";
+      if (cmd.type === "shutdown" && cmd.delay === null) {
+        return "Não entendi para quando, mestre. Diga, por exemplo: desliga o computador daqui a 30 minutos.";
+      }
       if (cmd.type === "shutdown") {
         pending = { command: cmd, until: now() + 30_000 };
         const what = cmd.restart ? "reiniciar" : "desligar";

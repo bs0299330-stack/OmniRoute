@@ -104,6 +104,7 @@ body.voice-only {
   top: calc(41 * var(--u));
   right: calc(56 * var(--u));
   text-align: right;
+  letter-spacing: normal; /* hud.css styles a .clock of its own (the Claude version) */
 }
 .clock .eyebrow {
   margin-right: -0.22em; /* the letter spacing after the last letter */
@@ -143,6 +144,8 @@ body.voice-only {
   inset: 0;
   display: grid;
   place-items: center;
+  padding: 0;
+  gap: 0;
   pointer-events: none;
 }
 #orb {
@@ -249,7 +252,9 @@ body.voice-only {
 }
 
 /* ---------- phone ---------- */
-@media (max-width: 760px) {
+/* below ~1000 px wide (or a phone lying down) the 1280×720 drawing no longer fits beside the
+   globe: everything goes into one column that scrolls */
+@media (max-width: 1000px), (max-height: 480px) {
   body.voice-only {
     --u: 1px;
     overflow-y: auto;

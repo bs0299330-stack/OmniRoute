@@ -177,3 +177,31 @@ test("newsFeed: Agência Brasil first, g1 when it fails, without weather posts",
   assert.deepEqual(await newsFeed(g1.impl), { source: "g1", items: [{ title: "Notícia do g1", category: "Geral", summary: "" }] });
   assert.equal(await newsFeed(fakeFetch({}).impl), null);
 });
+
+test("lookups: no false alarms from prices, gearboxes, ovens, fevers or 'quem é você'", () => {
+  for (const q of [
+    "quanto custa um iPhone?",
+    "qual o preço do arroz?",
+    "câmbio automático ou manual?",
+    "qual a temperatura ideal para assar um bolo?",
+    "meu filho está com febre, qual temperatura é perigosa?",
+    "quem é você?",
+    "o que é que você acha disso?",
+  ]) {
+    assert.equal(detectLookup(q), null, q);
+  }
+  assert.deepEqual(detectLookup("clima em cacoal"), { kind: "weather", city: "cacoal", day: 0 });
+  assert.deepEqual(detectLookup("como está o tempo em casa"), { kind: "weather", city: "", day: 0 });
+  assert.deepEqual(detectLookup("cotação do euro hoje"), { kind: "money", codes: ["EUR"] });
+});
+
+test("briefing grammar: 'é 1 hora', '1 grau', 'segundo o g1'", async () => {
+  const { buildBriefing } = await import("../../contrib/alfred/weblite.mjs");
+  const text = buildBriefing(new Date(2026, 6, 10, 1, 0), {
+    weather: { source: "Open-Meteo", text: "", data: { place: "Curitiba", current: { temp: 1, words: "céu limpo" }, day: null } },
+    news: { source: "g1", text: "", titles: ["Manchete"] },
+  });
+  assert.match(text, /e é 1 hora em ponto\./);
+  assert.match(text, /agora faz 1 grau, com céu limpo/);
+  assert.match(text, /segundo o g1: Manchete\./);
+});

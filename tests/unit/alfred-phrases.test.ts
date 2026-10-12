@@ -373,3 +373,44 @@ test("a refused ElevenLabs plan turns the AI voice off after the first sentence 
     eleven.close();
   }
 });
+
+test("the server survives a malformed request and refuses other sites", async () => {
+  const { spawn } = await import("node:child_process");
+  const { connect } = await import("node:net");
+  const port = 30000 + ((process.pid + 7) % 20000);
+  const child = spawn(process.execPath, ["contrib/alfred/server.mjs"], {
+    env: { ...process.env, ALFRED_PORT: String(port), ALFRED_BRAIN: "gemini", GEMINI_API_KEY: "test", ALFRED_TOKEN: "", ALFRED_MEMORY: "off" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("server did not start")), 10_000);
+      child.stdout.on("data", (d) => {
+        if (String(d).includes(`:${port}`)) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      child.on("exit", (code) => reject(new Error("server exited " + code)));
+    });
+    // a request line that is not a valid URL used to crash the whole server
+    await new Promise<void>((resolve) => {
+      const sock = connect(port, "127.0.0.1", () => sock.end("GET //[ HTTP/1.1\r\nHost: x\r\n\r\n"));
+      sock.on("data", () => {});
+      sock.on("close", () => resolve());
+      sock.on("error", () => resolve());
+    });
+    const base = `http://127.0.0.1:${port}`;
+    assert.equal((await fetch(`${base}/api/health`)).status, 200, "still up");
+    const csrf = await fetch(`${base}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "desliga o computador" }] }),
+    });
+    assert.equal(csrf.status, 403);
+    const plain = await fetch(`${base}/api/chat`, { method: "POST", headers: { "content-type": "text/plain" }, body: "{}" });
+    assert.equal(plain.status, 415, "only JSON (a text/plain post needs no CORS check)");
+  } finally {
+    child.kill();
+  }
+});

@@ -55,7 +55,7 @@ const ABBREVIATION_END = /(?:^|[\s(])(?:sr|sra|srta|dr|dra|prof|profa|av|etc|ex|
 const SENTENCE_END = /[.!?…]+["'”’)\]]*(?=\s)|\n+/g;
 const SOFT_BREAK = /[,;:](?=\s)/g;
 // The list of links a web answer ends with ("Sources:" / "Fontes:") is shown, not read aloud.
-const SOURCES_HEADING = /(?:^|\n)[ \t]*(?:\*\*|#+[ \t]*)?(?:sources|fontes|referências|referencias)(?:\*\*)?[ \t]*:/i;
+export const SOURCES_HEADING = /(?:^|\n)[ \t]*(?:\*\*|#+[ \t]*)?(?:sources|fontes|referências|referencias)(?:\*\*)?[ \t]*:/i;
 
 /** Strips what should not be read aloud: markdown, links, emoji, code. */
 export function cleanForSpeech(text) {
@@ -277,22 +277,41 @@ export function createSpeaker({
     if (voice) u.voice = voice;
     u.rate = s.rate;
     u.pitch = s.pitch;
-    u.onend = onDone;
-    u.onerror = onDone;
+    // Chrome may drop an utterance it no longer sees referenced, and then never calls onend.
+    speaking.add(u);
+    const done = () => {
+      speaking.delete(u);
+      onDone();
+    };
+    u.onend = done;
+    u.onerror = done;
     u.onboundary = () => onWord();
     if (synth.paused) synth.resume();
     synth.speak(u);
   }
+  const speaking = new Set();
+
+  // The longest a browser chunk may take before Alfred stops waiting for it (some browsers never
+  // say it ended, which would keep the microphone closed for good).
+  const speechCap = (text) => 8000 + (text.length * 150) / Math.max(0.5, Number(settings().rate) || 1);
 
   function sayBrowser(text, gen) {
     if (!synth) return;
     setPending(1);
     const speakNow = () => {
       if (gen !== generation) return; // cancelled while waiting for a clip
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(cap);
+        if (gen === generation) setPending(-1);
+      };
+      const cap = setTimeout(finish, speechCap(text));
       try {
-        utter(text, () => gen === generation && setPending(-1));
+        utter(text, finish);
       } catch {
-        setPending(-1);
+        finish();
       }
     };
     if (clipsAhead > 0) clipTail.then(speakNow);
@@ -360,7 +379,7 @@ export function createSpeaker({
   // Speaks with the browser voice and resolves at the end, with a time cap: some browsers skip onend.
   function utterAndWait(text) {
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, 4000 + text.length * 120);
+      const timer = setTimeout(resolve, speechCap(text));
       const done = () => {
         clearTimeout(timer);
         resolve();
@@ -396,18 +415,9 @@ export function createSpeaker({
           }
           return;
         }
-        if (gen === generation) {
-          await new Promise((done) => {
-            const player = new Audio(url);
-            currentAudio = player;
-            try {
-              onAudio(player);
-            } catch {}
-            player.onended = done;
-            player.onerror = done;
-            player.play().catch(done);
-          });
-          currentAudio = null;
+        // same rules as a clip: a chunk that cannot start (hidden window) is said by the browser voice
+        if (gen === generation && !(await playUrl(url, { maxMs: 120_000 })) && synth && gen === generation) {
+          await utterAndWait(text);
         }
         URL.revokeObjectURL(url);
       })
