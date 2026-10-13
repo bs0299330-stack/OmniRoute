@@ -199,3 +199,14 @@ test("pcmToWav writes a valid 16-bit mono WAV header", async () => {
   assert.equal(wav.readUInt16LE(34), 16);
   assert.equal(wav.readUInt32LE(40), 480);
 });
+
+test("validateChatBody: a trimmed history never starts with Alfred's reply", () => {
+  const messages = [];
+  for (let i = 0; i < 25; i++) messages.push({ role: "user", content: `p${i}` }, { role: "assistant", content: `r${i}` });
+  messages.push({ role: "user", content: "agora" });
+  const check = validateChatBody({ messages });
+  assert.ok(check.ok);
+  assert.equal(check.messages[0].role, "user");
+  assert.equal(check.messages.at(-1).content, "agora");
+  assert.ok(check.messages.length <= 40);
+});

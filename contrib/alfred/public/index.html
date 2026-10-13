@@ -463,13 +463,21 @@
 
         let full = "";
         let saidMoment = false;
-        try {
-          const res = await fetch("api/chat", {
-            method: "POST",
-            headers: { "content-type": "application/json", ...authHeaders() },
-            body: JSON.stringify({ messages: history.slice(-MAX_SENT) }),
-            signal: stop.signal,
-          });
+        // Uma resposta: falhas passageiras (servidor ou internet ainda ligando) vêm marcadas com
+        // `retry`, para tentar mais uma vez antes de reclamar.
+        const answer = async () => {
+          let res;
+          try {
+            res = await fetch("api/chat", {
+              method: "POST",
+              headers: { "content-type": "application/json", ...authHeaders() },
+              body: JSON.stringify({ messages: history.slice(-MAX_SENT) }),
+              signal: stop.signal,
+            });
+          } catch (err) {
+            if (stop.signal.aborted) throw err;
+            throw Object.assign(new Error("Não consegui falar com o servidor do Alfred. A janela preta está aberta?"), { retry: true });
+          }
           if (res.status === 401) {
             token = window.prompt("Token de acesso do Alfred:") || "";
             store.set("token", token);
@@ -477,7 +485,7 @@
           }
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || "Erro " + res.status);
+            throw Object.assign(new Error(err.error || "Erro " + res.status), { retry: res.status >= 500 });
           }
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -492,7 +500,7 @@
               const data = ev.replace(/^data:\s*/, "");
               if (!data || data === "[DONE]") continue;
               const msg = JSON.parse(data);
-              if (msg.error) throw new Error(msg.error);
+              if (msg.error) throw Object.assign(new Error(msg.error), { retry: !full });
               if (msg.status) {
                 setPhase("thinking", msg.status); // “Pesquisando: …”, “Lendo g1.globo.com”
                 if (!full && !saidMoment) {
@@ -505,6 +513,18 @@
               entry.textContent = full;
               log.scrollTop = log.scrollHeight;
               say(chunker.push(msg.text));
+            }
+          }
+        };
+        try {
+          for (let attempt = 1; ; attempt++) {
+            try {
+              await answer();
+              break;
+            } catch (err) {
+              if (stop.signal.aborted || full || !err.retry || attempt >= 2) throw err;
+              console.warn("[alfred] tentando de novo:", err.message);
+              await new Promise((r) => setTimeout(r, 1500));
             }
           }
           say(chunker.flush());
@@ -524,7 +544,9 @@
           history.pop();
           entry.closest(".entry").remove();
           addEntry("note", err.message);
-          phrase("erro"); // o motivo fica no histórico do menu (tecla M)
+          // “Perdão, mestre. Não consegui responder agora.” e o motivo: na tela e, se curto, em voz
+          setStatus(err.message, true);
+          if (phrase("erro") && err.message.length <= 160) speaker.sayAll(err.message);
         } finally {
           if (answering === stop) answering = null;
           busy = false;

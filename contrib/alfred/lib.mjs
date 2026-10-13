@@ -265,7 +265,10 @@ export function validateChatBody(body) {
   if (messages[messages.length - 1].role !== "user") {
     return { ok: false, error: "A última mensagem deve ser do usuário." };
   }
-  return { ok: true, messages: messages.slice(-MAX_HISTORY_MESSAGES) };
+  // The conversation always starts with the user (Gemini refuses one that starts with a reply).
+  const kept = messages.slice(-MAX_HISTORY_MESSAGES);
+  while (kept[0].role !== "user") kept.shift();
+  return { ok: true, messages: kept };
 }
 
 export function buildChatRequest(config, messages, now = new Date(), { web = false, clock = true } = {}) {
