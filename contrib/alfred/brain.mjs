@@ -338,7 +338,7 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
     // PC commands are answered by Alfred himself, without the brain.
     if (config.pc !== "off") {
       pcControl ??= createPcControl();
-      const done = pcControl.handle(said);
+      const done = await pcControl.handle(said); // "como está o computador" takes half a second
       if (done) {
         yield done;
         return;

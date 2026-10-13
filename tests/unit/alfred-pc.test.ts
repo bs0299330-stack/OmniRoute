@@ -134,3 +134,32 @@ test("only a real yes confirms: 'pode deixar', 'claro que não' or a question ne
   pc.handle("desliga o PC");
   assert.match(pc.handle("sim, mestre") ?? "", /^Desligando o computador em um minuto/);
 });
+
+test("from Jarvis: maps and routes, a print of the screen, how the PC is doing, any site", async () => {
+  assert.deepEqual(parseCommand("Alfred, mostra no mapa a praça de Cabixi"), { type: "map", place: "a praça de cabixi" });
+  assert.deepEqual(parseCommand("como chegar em Vilhena?"), { type: "route", place: "vilhena" });
+  assert.deepEqual(parseCommand("tira um print"), { type: "screenshot" });
+  assert.deepEqual(parseCommand("como está o computador?"), { type: "sysinfo" });
+  assert.deepEqual(parseCommand("abre o site mercado livre ponto com ponto br"), { type: "address", host: "mercadolivre.com.br" });
+  assert.deepEqual(parseCommand("abre o GitHub"), { type: "site", key: "github" });
+  assert.equal(parseCommand("tira uma foto"), null);
+  const calls: string[][] = [];
+  const pc = createPcControl({
+    platform: "win32",
+    spawnImpl: ((cmd: string, args: string[]) => {
+      calls.push([cmd, ...args]);
+      return { on() {}, unref() {} };
+    }) as never,
+    systemInfo: async () => ({ cpu: 30, usedMem: 4 * 1024 ** 3, totalMem: 8 * 1024 ** 3, battery: { percent: 15, plugged: false } }),
+  });
+  assert.equal(pc.handle("como chegar em Vilhena"), "Abrindo o caminho até vilhena, mestre.");
+  assert.deepEqual(calls.at(-1), ["explorer.exe", "https://www.google.com/maps/dir/?api=1&destination=vilhena"]);
+  pc.handle("abre o site exemplo.com.br");
+  assert.deepEqual(calls.at(-1), ["explorer.exe", "https://exemplo.com.br/"]);
+  assert.match(pc.handle("tira um print") as string, /Prints do Alfred/);
+  assert.equal(calls.at(-1)![0], "powershell.exe");
+  assert.match(
+    await pc.handle("como está o computador"),
+    /processador está em 30 por cento.*memória em 50 por cento.*bateria está em 15 por cento, fora da tomada\. Sugiro ligar o carregador/
+  );
+});

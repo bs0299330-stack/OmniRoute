@@ -297,6 +297,10 @@ A cidade é perguntada pelo instalador uma vez e fica no `alfred.env` deste PC
 | "Pausa a música", "próxima música", "música anterior" | Controla o que estiver tocando                          |
 | "Desliga o PC", "reinicia o computador", "desliga daqui a 30 minutos" | Pergunta "tem certeza?"; só com **sim** ele agenda, com 1 minuto para desistir |
 | "Cancela o desligamento"                          | Cancela                                                     |
+| "Mostra no mapa a praça de Cabixi", "como chegar em Vilhena" | Abre o Google Maps no lugar ou com o caminho      |
+| "Tira um print"                                   | Salva a tela na pasta **Prints do Alfred**, na Área de Trabalho |
+| "Como está o computador?"                         | Diz o uso do processador e da memória e a bateria          |
+| "Abre o site mercadolivre.com.br", "abre o GitHub" | Abre o site                                               |
 
 Os comandos são reconhecidos pela **sua frase**, numa lista fixa (`pc.mjs`). A IA nunca executa
 nada, então nenhuma página ou resposta consegue mandar o Alfred mexer no PC. Só programas fixos

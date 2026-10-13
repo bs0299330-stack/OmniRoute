@@ -1,9 +1,10 @@
-// Alfred — controls the Windows PC by voice: open sites and programs, volume and music, shut
-// down. Commands are recognised from the user's own words against a fixed list (the brain never
+// Alfred — controls the Windows PC by voice: open sites and programs, maps and routes, a print
+// of the screen, how the computer is doing, volume and music, shut down. Commands are recognised from the user's own words against a fixed list (the brain never
 // runs anything, so no web page or answer can make Alfred act on the PC), and only fixed commands
 // run, with no shell: user words only ever end up URL-encoded inside an https:// address.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { cpus, freemem, totalmem } from "node:os";
 
 // ---------- What can be opened ----------
 
@@ -14,6 +15,8 @@ const SITES = {
   google: ["o Google", "https://www.google.com/"],
   netflix: ["a Netflix", "https://www.netflix.com/"],
   spotify: ["o Spotify", "https://open.spotify.com/"],
+  github: ["o GitHub", "https://github.com/"],
+  reddit: ["o Reddit", "https://www.reddit.com/"],
 };
 
 // Program name → what Windows' Start-Process gets (all constants).
@@ -94,6 +97,30 @@ export function parseDelay(text, now = new Date()) {
 /** What the user asked the PC to do: `{ type, … }` or null (then the brain answers). */
 export function parseCommand(text) {
   const raw = String(text ?? "");
+  // These are asked as questions on purpose ("como chegar em Vilhena?", "como está o computador?")
+  const asked = plain(raw).replace(WAKE, "").replace(POLITE, "");
+  const lower = raw
+    .toLowerCase()
+    .replace(/[?!,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:(?:ei|ok|olá|ola|oi)\s+)?alfredo?\s+/, "")
+    .replace(/^(?:por favor|pode|você pode|voce pode)\s+/, "")
+    .replace(/\.$/, "");
+  // maps: "mostra no mapa a praça de Cabixi", "como chegar em Vilhena", "rota para Cacoal"
+  const route = lower.match(/^(?:como (?:eu )?(?:chego|chegar|fa[cç]o (?:pra|para) chegar)|(?:me )?(?:mostra|abre|tra[cç]a|faz) (?:a |uma )?rota|rota|caminho) (?:at[eé] |em |no |na |pra |para |ao |à |a )?(.{2,80})$/);
+  if (route) return { type: "route", place: route[1].replace(/\s+(?:no|pelo) (?:mapa|google maps)$/, "") };
+  const map = lower.match(/^(?:(?:me )?mostra|abre|procura) (?:no mapa|no google maps|o mapa d[aeo]s?|o mapa de) (.{2,80})$|^onde fica (.{2,80}?) no mapa$|^mapa d[aeo]s? (.{2,80})$/);
+  if (map) return { type: "map", place: (map[1] || map[2] || map[3]).trim() };
+  // print of the screen
+  if (/^(?:tira|tirar|faz|fazer|bate|bater)? ?(?:um |uma )?(?:print|printscreen|captura|foto|screenshot)(?: d[ao] tela| do (?:pc|computador))?$|^(?:printa|captura|fotografa) (?:a )?tela$/.test(asked) && /print|captura|screenshot|tela/.test(asked)) {
+    return { type: "screenshot" };
+  }
+  // how the computer is doing
+  if (/^(?:como (?:esta|ta|anda|vai) (?:o |meu |a )?(?:pc|computador|notebook|maquina|bateria|memoria|processador)|(?:status|estado) d[oa] (?:pc|computador|notebook|bateria)|quanto (?:de |tem de )?bateria|(?:qual (?:e )?)?(?:o )?uso d[ae] (?:memoria|processador|cpu|ram)|informacoes do (?:pc|computador|sistema))\b/.test(asked)) {
+    return { type: "sysinfo" };
+  }
+
   // Questions and stories ("desligar o computador faz mal?", "minha mãe desliga o computador")
   // are for the brain: only orders, said at the start of the sentence, act on the PC.
   if (raw.includes("?")) return null;
@@ -147,6 +174,14 @@ export function parseCommand(text) {
     if (site) return { type: "site", key: site };
     const program = Object.keys(PROGRAMS).find((k) => name === k || name.startsWith(`${k} `));
     if (program) return { type: "program", key: program };
+    // a site by its address: "abre o site mercadolivre.com.br" ("mercado livre ponto com ponto br")
+    const address = lower
+      .match(/^(?:abr[ae]r?|entra(?:r)? n[oa])\s+(?:o |a )?site\s+(?:d[aeo]\s+)?(.+)$/)?.[1]
+      ?.replace(/\s+ponto\s+/g, ".")
+      .replace(/\s+/g, "")
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*$/, "");
+    if (address && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(address)) return { type: "address", host: address };
     // anything else is looked up on Google, but only after "abre" ("liga pra minha mãe",
     // "vai na padaria" are not things to open)
     if (!/^abr/.test(open[1]) || /^(pc|computador|maquina|volume|som|musica|luz|porta|janela)\b/.test(name)) return null;
@@ -203,10 +238,91 @@ function spokenDelay(seconds) {
  * into an action. `handle(text)` returns Alfred's spoken reply, or null when the words are not a
  * PC command (the brain answers instead).
  */
-export function createPcControl({ platform = process.platform, spawnImpl = spawn, now = () => Date.now() } = {}) {
+// A print of the whole screen (all monitors) into "Prints do Alfred" on the Desktop. A fixed
+// script: nothing the user says goes into it.
+const SCREENSHOT_SCRIPT = [
+  "Add-Type -AssemblyName System.Windows.Forms, System.Drawing",
+  // without this, Windows hands a scaled-down screen to PowerShell on high-DPI notebooks
+  "Add-Type -Name Dpi -Namespace Alfred -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'",
+  "[void][Alfred.Dpi]::SetProcessDPIAware()",
+  "$b = [System.Windows.Forms.SystemInformation]::VirtualScreen",
+  "$img = New-Object System.Drawing.Bitmap $b.Width, $b.Height",
+  "$g = [System.Drawing.Graphics]::FromImage($img)",
+  "$g.CopyFromScreen($b.Left, $b.Top, 0, 0, $img.Size)",
+  "$dir = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Prints do Alfred'",
+  "New-Item -ItemType Directory -Force -Path $dir | Out-Null",
+  "$img.Save((Join-Path $dir ('print-' + (Get-Date -Format 'yyyy-MM-dd-HHmmss') + '.png')), [System.Drawing.Imaging.ImageFormat]::Png)",
+].join("; ");
+
+const pct = (n) => `${Math.round(n)} por cento`;
+const gb = (bytes) => (bytes / 1024 ** 3).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+
+/** CPU use over half a second, memory, and the battery (Windows): { cpu, usedMem, totalMem, battery }. */
+export async function readSystemInfo({ platform = process.platform } = {}) {
+  const sample = () => cpus().reduce((a, c) => ({ idle: a.idle + c.times.idle, total: a.total + Object.values(c.times).reduce((x, y) => x + y, 0) }), { idle: 0, total: 0 });
+  const before = sample();
+  await new Promise((r) => setTimeout(r, 500));
+  const after = sample();
+  const busy = 1 - (after.idle - before.idle) / Math.max(1, after.total - before.total);
+  let battery = null;
+  if (platform === "win32") {
+    battery = await new Promise((resolve) =>
+      execFile(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Battery | Select-Object -First 1 EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress"],
+        { windowsHide: true, timeout: 8000 },
+        (err, out) => {
+          try {
+            const b = JSON.parse(String(out || "null"));
+            // BatteryStatus 1 = on battery; 2 and up = plugged in / charging
+            resolve(b && Number.isFinite(b.EstimatedChargeRemaining) ? { percent: b.EstimatedChargeRemaining, plugged: b.BatteryStatus !== 1 } : null);
+          } catch {
+            resolve(null);
+          }
+        }
+      )
+    );
+  }
+  return { cpu: busy * 100, usedMem: totalmem() - freemem(), totalMem: totalmem(), battery };
+}
+
+/** How Alfred says it. */
+export function describeSystem({ cpu, usedMem, totalMem, battery }) {
+  const parts = [
+    `O processador está em ${pct(cpu)} de uso e a memória em ${pct((usedMem / totalMem) * 100)}, ${gb(usedMem)} de ${gb(totalMem)} gigas.`,
+  ];
+  if (battery) parts.push(`A bateria está em ${pct(battery.percent)}, ${battery.plugged ? "na tomada" : "fora da tomada"}.`);
+  if (battery && !battery.plugged && battery.percent <= 20) parts.push("Sugiro ligar o carregador, mestre.");
+  else if (cpu > 85 || usedMem / totalMem > 0.9) parts.push("Está bem ocupado, mestre.");
+  else parts.push("Tudo tranquilo, mestre.");
+  return parts.join(" ");
+}
+
+export function createPcControl({ platform = process.platform, spawnImpl = spawn, now = () => Date.now(), systemInfo = readSystemInfo } = {}) {
   let pending = null; // { command, until }
 
   function execute(cmd) {
+    if (cmd.type === "map" || cmd.type === "route") {
+      const url =
+        cmd.type === "map"
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cmd.place)}`
+          : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cmd.place)}`;
+      if (!openUrl(url, spawnImpl)) return "Não consegui abrir o mapa, mestre.";
+      return cmd.type === "map" ? `Abrindo ${cmd.place} no mapa, mestre.` : `Abrindo o caminho até ${cmd.place}, mestre.`;
+    }
+    if (cmd.type === "address") {
+      return openUrl(`https://${cmd.host}/`, spawnImpl) ? `Abrindo ${cmd.host}, mestre.` : "Não consegui abrir o site, mestre.";
+    }
+    if (cmd.type === "screenshot") {
+      return run("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-Command", SCREENSHOT_SCRIPT], spawnImpl)
+        ? "Pronto, mestre. O print está na pasta Prints do Alfred, na Área de Trabalho."
+        : "Não consegui tirar o print, mestre.";
+    }
+    if (cmd.type === "sysinfo") {
+      return systemInfo({ platform })
+        .then(describeSystem)
+        .catch(() => "Não consegui ver como está o computador agora, mestre.");
+    }
     if (cmd.type === "site") {
       const [name, url] = SITES[cmd.key];
       return openUrl(url, spawnImpl) ? `Abrindo ${name}, mestre.` : `Não consegui abrir ${name}, mestre.`;
