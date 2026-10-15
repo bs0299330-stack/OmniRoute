@@ -14,9 +14,9 @@ import { readFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BRAIN_LABELS, BrainError, detectBrainInfo, getMemory, keepLocalWarm, streamReply } from "./brain.mjs";
+import { BRAIN_LABELS, BrainError, detectBrainInfo, getAgenda, getMemory, keepLocalWarm, reserveBrains, streamReply } from "./brain.mjs";
 import { createCare } from "./care.mjs";
-import { briefing, newsFeed } from "./weblite.mjs";
+import { briefing, cityAlerts, newsFeed } from "./weblite.mjs";
 import {
   ELEVENLABS_FALLBACK_MODEL,
   buildPhoneLink,
@@ -84,6 +84,47 @@ async function readJsonBody(req) {
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
+
+// Avisos: what Alfred says without being asked (a reminder, the alarm, a timer, a weather alert).
+// The page asks every few seconds for the ones newer than the last it said (`id` grows with the
+// clock, so it keeps growing when Alfred is restarted).
+const AVISO_KEEP_MS = 15 * 60_000;
+const avisos = []; // { id, kind, text }
+let lastAvisoId = 0;
+function pushAviso(kind, text) {
+  lastAvisoId = Math.max(Date.now(), lastAvisoId + 1);
+  avisos.push({ id: lastAvisoId, kind, text });
+  while (avisos.length > 30 || (avisos.length && avisos[0].id < Date.now() - AVISO_KEEP_MS)) avisos.shift();
+  console.log(`   🔔 ${text}`);
+}
+// What came due, every 5 seconds (and, after the PC wakes up, what came due while it slept).
+setInterval(() => {
+  try {
+    for (const due of getAgenda(config)?.due() ?? []) pushAviso(due.kind, due.text);
+  } catch (err) {
+    console.error("[alfred] lembretes:", err?.message);
+  }
+}, 5000).unref();
+
+// Severe weather (INMET "perigo" and "grande perigo") for ALFRED_CITY: Alfred says it by himself,
+// once per alert, checking every 30 minutes; not between 22h and 6h, when it waits for the morning.
+// The milder "perigo potencial" is only mentioned in the bom dia and when the weather is asked.
+const announcedAlerts = new Set();
+async function checkAlerts() {
+  if (!config.city || config.web === "off") return;
+  const hour = new Date().getHours();
+  if (hour >= 22 || hour < 6) return;
+  try {
+    for (const alert of await cityAlerts(config.city)) {
+      const key = `${alert.id}:${alert.what}`;
+      if (alert.level < 2 || announcedAlerts.has(key)) continue;
+      announcedAlerts.add(key);
+      pushAviso("alerta", alert.spoken);
+    }
+  } catch {} // no internet now: next time
+}
+setTimeout(checkAlerts, 60_000).unref();
+setInterval(checkAlerts, 30 * 60_000).unref();
 
 const NEWS_TTL_MS = 10 * 60_000;
 let newsCache = null; // { at, feed }
@@ -277,7 +318,7 @@ const server = createServer(async (req, res) => {
         ok: true,
         brain: brain && brainFound ? BRAIN_LABELS[brain] : null,
         brainFound,
-        model: { claude: "Claude Code", openai: config.openaiModel, gemini: config.geminiModel, local: config.localModel }[brain] ?? config.model,
+        model: { claude: "Claude Code", openai: config.openaiModel, gemini: config.geminiModel, groq: config.groqModel, local: config.localModel }[brain] ?? config.model,
         auth: !!config.accessToken,
         tts: config.ttsProvider
           ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config), label: ttsLabel(config) }
@@ -296,6 +337,10 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, {
         text: await briefing({ city: config.city, now, name: memory?.name ?? "", birthdays: memory?.birthdaysOn(now) ?? [] }),
       });
+    }
+    if (req.method === "GET" && url.pathname === "/api/avisos") {
+      const after = Number(url.searchParams.get("depois")) || 0;
+      return sendJson(res, 200, { avisos: avisos.filter((a) => a.id > after) });
     }
     if (req.method === "GET" && url.pathname === "/api/news") {
       // "Notícias do dia" on the screen. Kept for 10 minutes, so pages refreshing it cost little.
@@ -335,10 +380,13 @@ async function announceBrain() {
     omniroute: `OmniRoute em ${config.baseUrl} (modelo "${config.model}")`,
     local: `IA do PC pelo Ollama (modelo "${config.localModel}", grátis, sem internet)`,
     gemini: `Gemini do Google (modelo "${config.geminiModel}", plano grátis, sem internet)`,
+    groq: `Groq (modelo "${config.groqModel}", plano grátis, sem internet)`,
     openai: `OpenAI (modelo "${config.openaiModel}")`,
-    claude: "Claude, pelo Claude Code instalado neste PC",
+    claude: "Claude, pelo Claude Code instalado neste PC (modelo leve no dia a dia, o mais forte quando a pergunta pede)",
   }[found];
   console.log(`   cérebro: ${detail}${config.brain === "auto" ? " — escolhido automaticamente" : ""}`);
+  const reserve = reserveBrains(config, found);
+  if (reserve.length) console.log(`   reserva: se ele falhar, responde o ${reserve.map((b) => BRAIN_LABELS[b]).join(", depois o ")}`);
   if (found === "omniroute") {
     try {
       const res = await fetch(`${config.baseUrl}/models`, {

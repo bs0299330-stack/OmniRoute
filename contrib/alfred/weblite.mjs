@@ -24,7 +24,9 @@ const WEATHER =
   /previs[aã]o do tempo|como (est[aá]|vai estar|vai ficar|fica|t[aá]) o (tempo|clima)|\bclima\b|vai chover|chov|\bchuva|temperatura (?:de |para |pra )?(?:hoje|agora|amanh[aã]|l[aá] fora|em\b|no\b|na\b)|qual (?:[eé] )?a temperatura[?.!]*$|quantos graus|faz(endo)? (frio|calor)|(est[aá]|t[aá]) (frio|quente|calor)/i;
 // …but not the oven, a fever or the computer ("temperatura ideal para assar um bolo").
 const NOT_WEATHER = /\b(forno|assar|bolo|febre|corpo|beb[eê]|piscina|geladeira|freezer|motor|cpu|processador|computador|placa de v[ií]deo)\b/i;
-const NEWS = /\bnot[ií]cias?\b|\bmanchetes?\b|o que (est[aá] )?(aconteceu|acontecendo) (hoje|no brasil|no mundo)|novidades de hoje/i;
+const NEWS = /\bnot[ií]cias?\b|\bmanchetes?\b|o que (est[aá] )?(aconteceu|acontecendo) (hoje|no brasil|no mundo|aqui|na regi[aã]o|em rond[oô]nia)|novidades de hoje/i;
+// "notícias de Rondônia", "da região", "daqui", "de Vilhena", "locais"
+const LOCAL_NEWS = /\b(rond[oô]nia|\bRO\b|regi[aã]o|regionais?|locais|local|daqui|aqui|cone sul|vilhena|cabixi|colorado|cerejeiras|pimenteiras|da cidade|do estado|meu estado|minha cidade)\b/i;
 const WHO = /^(?:quem (?:é|e|foi|era)|o que (?:é|e|foi|significa)|onde fica|quando (?:foi|nasceu|morreu))\s+(.{2,80}?)[?.!]*$/i;
 // "Alfred," at the start is the wake word, not part of the question.
 const WAKE = /^(?:(?:ei|ok|olá|ola|oi)[\s,]+)?alfredo?[\s,.!]+/i;
@@ -46,7 +48,7 @@ export function detectLookup(text) {
   }
   const codes = CURRENCIES.filter(([re]) => re.test(q)).map(([, code]) => code);
   if (codes.length || MONEY.test(q)) return { kind: "money", codes: codes.length ? codes : ["USD"] };
-  if (NEWS.test(q)) return { kind: "news" };
+  if (NEWS.test(q)) return LOCAL_NEWS.test(q) ? { kind: "news", local: true } : { kind: "news" };
   const who = q.match(WHO);
   if (who && !NOT_A_SUBJECT.test(who[1].trim())) return { kind: "wiki", query: who[1].trim() };
   return null;
@@ -56,7 +58,7 @@ export function detectLookup(text) {
 export function lookupLabel(lookup, config = {}) {
   if (lookup.kind === "weather") return `clima em ${lookup.city || config.city || "São Paulo"}`;
   if (lookup.kind === "money") return "cotação " + lookup.codes.map((c) => CURRENCY_NAME[c] ?? c).join(", ");
-  if (lookup.kind === "news") return "notícias de hoje";
+  if (lookup.kind === "news") return lookup.local ? "notícias da região" : "notícias de hoje";
   return lookup.query;
 }
 const CURRENCY_NAME = Object.fromEntries(CURRENCIES.map(([, code, name]) => [code, name]));
@@ -195,18 +197,48 @@ async function money(codes, fetchImpl) {
   return lines.length ? { source: sources.join(" e "), text: lines.join("; ") } : null;
 }
 
-async function weather(city, day, fetchImpl) {
+// The states' abbreviations, as INMET writes them after each town ("Cabixi - RO").
+const UF = {
+  Acre: "AC", Alagoas: "AL", Amapá: "AP", Amazonas: "AM", Bahia: "BA", Ceará: "CE", "Distrito Federal": "DF",
+  "Espírito Santo": "ES", Goiás: "GO", Maranhão: "MA", "Mato Grosso": "MT", "Mato Grosso do Sul": "MS",
+  "Minas Gerais": "MG", Pará: "PA", Paraíba: "PB", Paraná: "PR", Pernambuco: "PE", Piauí: "PI",
+  "Rio de Janeiro": "RJ", "Rio Grande do Norte": "RN", "Rio Grande do Sul": "RS", Rondônia: "RO", Roraima: "RR",
+  "Santa Catarina": "SC", "São Paulo": "SP", Sergipe: "SE", Tocantins: "TO",
+};
+
+/** Where a city is: `{ name, admin1, latitude, longitude, country_code }` (Open-Meteo), or null. */
+export async function geocode(city, fetchImpl = fetch) {
   const geo = await getJson(
     `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=pt&format=json`,
     fetchImpl
   );
-  const place = geo.results?.[0];
+  return geo.results?.[0] ?? null;
+}
+
+/** "à tarde, às 16 horas" — when the chance of rain is highest in the next hours, or null. */
+export function rainSoon(hourly, now = new Date()) {
+  const times = hourly?.time ?? [];
+  const chance = hourly?.precipitation_probability ?? [];
+  let best = -1;
+  for (let i = 0; i < times.length; i++) if (chance[i] != null && (best < 0 || chance[i] > chance[best])) best = i;
+  if (best < 0) return null;
+  const when = new Date(times[best]);
+  const hour = Number.isNaN(when.getTime()) ? null : when.getHours();
+  const max = chance[best];
+  if (max < 30 || hour === null) return { max, text: "sem chuva à vista nas próximas horas" };
+  const sameHour = now.getHours() === hour && Math.abs(now - when) < 3600_000;
+  return { max, text: `nas próximas horas, a maior chance de chuva é ${sameHour ? "agora" : `por volta das ${hour} horas`} (${max}%)` };
+}
+
+async function weather(city, day, fetchImpl) {
+  const place = await geocode(city, fetchImpl);
   if (!place) return null;
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}` +
     "&current=temperature_2m,apparent_temperature,weather_code" +
-    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3";
-  const f = await getJson(url, fetchImpl);
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=3" +
+    (day === 0 ? "&hourly=precipitation_probability&forecast_hours=12" : "");
+  const [f, alerts] = await Promise.all([getJson(url, fetchImpl), inmetAlerts(place, fetchImpl).catch(() => [])]);
   const where = [place.name, place.admin1].filter(Boolean).join(", ");
   const days = ["hoje", "amanhã", "depois de amanhã"];
   const lines = [];
@@ -222,11 +254,17 @@ async function weather(city, day, fetchImpl) {
     );
   }
   if (!lines.length) return null;
+  const soon = day === 0 ? rainSoon(f.hourly) : null;
+  if (soon) lines.push(soon.text);
+  // today: the alerts in force now; another day: the ones still in force by then
+  const warn = alerts.filter((a) => (day === 0 ? a.now : !a.ends || brDay(a.ends) >= brDay(new Date()) + day)).map((a) => a.short);
+  if (warn.length) lines.push(`alertas oficiais do INMET: ${warn.join("; ")}`);
   return {
-    source: "Open-Meteo",
+    source: warn.length ? "Open-Meteo e INMET" : "Open-Meteo",
     text: lines.join("; "),
     data: {
       place: place.name,
+      state: place.admin1 ?? "",
       current: f.current
         ? { temp: Math.round(f.current.temperature_2m), words: weatherWords(f.current.weather_code) }
         : null,
@@ -239,8 +277,98 @@ async function weather(city, day, fetchImpl) {
               rain: d.precipitation_probability_max[day] ?? 0,
             }
           : null,
+      alerts,
     },
   };
+}
+
+// ---------- Weather alerts (INMET, the Brazilian weather service; free, no key) ----------
+
+const INMET_URL = "https://apiprevmet3.inmet.gov.br/avisos/ativos";
+const LEVELS = { "perigo potencial": 1, perigo: 2, "grande perigo": 3 };
+
+/** "às 10 horas", "ao meio-dia", "à meia-noite", "à 1 hora". */
+function atClock(date) {
+  const words = spokenTime(date).replace(/ em ponto$/, "");
+  return /^meio-dia/.test(words) ? `ao ${words}` : /^(meia-noite|1 hora)/.test(words) ? `à ${words}` : `às ${words}`;
+}
+
+// INMET writes Brasília time ("2026-10-14 23:59"); the PC may be in another time zone (Rondônia
+// is an hour behind), so the day is counted in Brasília and the hour is said in local time.
+const inmetDate = (s) => {
+  const m = String(s ?? "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? { at: new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] + 3, +m[5])), hm: +m[4] * 60 + +m[5], day: +m[3] } : null;
+};
+const brDay = (d) => Math.floor((d.getTime() - 3 * 3600_000) / 86_400_000);
+const dayName = (t, now) => {
+  const diff = brDay(t.at) - brDay(now);
+  return diff <= 0 ? "hoje" : diff === 1 ? "amanhã" : `dia ${t.day}`;
+};
+
+/** "até o fim do dia", "até o fim de amanhã", "até amanhã às 10 horas". */
+function untilWords(end, now) {
+  const day = dayName(end, now);
+  if (end.hm >= 23 * 60 + 55) return day === "hoje" ? "até o fim do dia" : day === "amanhã" ? "até o fim de amanhã" : `até o fim do ${day}`;
+  return `até ${day === "hoje" ? "" : `${day} `}${atClock(end.at)}`;
+}
+
+/** "a partir de amanhã", "a partir de hoje às 15 horas". */
+function fromWords(start, now) {
+  const day = dayName(start, now);
+  return start.hm <= 5 ? `a partir de ${day}` : `a partir de ${day} ${atClock(start.at)}`;
+}
+
+/**
+ * The INMET alerts that cover `place` (from geocode()), today's and the coming ones:
+ * `[{ id, level, severity, what, now, short, spoken }]`, the most severe first.
+ */
+export function alertsFor(feed, place, now = new Date()) {
+  const uf = UF[place?.admin1] ?? "";
+  if (!place?.name || !uf) return [];
+  const town = new RegExp(`(?:^|,)\\s*${place.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} - ${uf} \\(`, "i");
+  const out = [];
+  for (const list of [feed?.hoje, feed?.futuro]) {
+    for (const a of Array.isArray(list) ? list : []) {
+      if (!a || a.encerrado || !town.test(String(a.municipios ?? ""))) continue;
+      const level = LEVELS[String(a.severidade ?? "").trim().toLowerCase()] ?? 1;
+      const start = inmetDate(a.inicio);
+      const end = inmetDate(a.fim);
+      if (end && end.at < now) continue;
+      const what = String(a.descricao ?? "tempo severo").trim().toLowerCase();
+      const severity = String(a.severidade ?? "perigo potencial").trim().toLowerCase();
+      // the same warning renewed for the next day is one warning (the most severe one is kept)
+      const twin = out.findIndex((o) => o.what === what);
+      if (twin >= 0 && out[twin].level >= level) continue;
+      if (twin >= 0) out.splice(twin, 1);
+      const live = !start || start.at <= now;
+      const when = live ? (end ? untilWords(end, now) : "") : start ? fromWords(start, now) : "";
+      const risk = shortSummary(String(a.riscos?.[0] ?? "").trim(), 160);
+      out.push({
+        id: String(a.id ?? a.codigo ?? `${what}-${a.inicio}`),
+        level,
+        severity,
+        what,
+        now: live,
+        ends: end?.at ?? null,
+        short: `${what} (${severity})${when ? `, ${when}` : ""}`,
+        spoken: `Atenção, mestre: o INMET emitiu um alerta de ${severity} para ${what} em ${place.name}${when ? `, ${when}` : ""}.${risk ? ` ${risk}` : ""}`,
+      });
+    }
+  }
+  return out.sort((a, b) => b.level - a.level);
+}
+
+/** The INMET alerts for a place (see alertsFor); [] when INMET does not answer. */
+export async function inmetAlerts(place, fetchImpl = fetch, now = new Date()) {
+  const res = await fetchImpl(INMET_URL, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) return [];
+  return alertsFor(await res.json(), place, now);
+}
+
+/** The alerts for the user's city, for the server to announce the severe ones by itself. */
+export async function cityAlerts(city, fetchImpl = fetch) {
+  const place = await geocode(city, fetchImpl);
+  return place ? inmetAlerts(place, fetchImpl) : [];
 }
 
 /** The latest stories, `{ source, items }` (Agência Brasil, then g1), or null when both fail. */
@@ -260,7 +388,49 @@ export async function newsFeed(fetchImpl = fetch, max = 4) {
   return null;
 }
 
-async function news(fetchImpl) {
+// News from the user's own state, read when the city is there (only Rondônia for now: the Cone
+// Sul papers first, then g1 Rondônia).
+const LOCAL_FEEDS = {
+  Rondônia: [
+    ["Extra de Rondônia", "https://www.extraderondonia.com.br/feed/"],
+    ["Vilhena Notícias", "https://www.vilhenanoticias.com.br/feed/"],
+    ["g1 Rondônia", "https://g1.globo.com/rss/g1/ro/rondonia/"],
+  ],
+};
+
+/** The state's latest stories, `{ source, items }`, two from each paper that answers; or null. */
+export async function localNewsFeed(state, fetchImpl = fetch, max = 4) {
+  const feeds = LOCAL_FEEDS[state];
+  if (!feeds) return null;
+  const lists = await Promise.all(
+    feeds.map(([source, url]) =>
+      getText(url, fetchImpl)
+        .then((xml) => rssItems(xml, 6).map((i) => ({ ...i, source })))
+        .catch(() => [])
+    )
+  );
+  const items = [];
+  for (let round = 0; items.length < max && lists.some((l) => l.length > round); round++) {
+    for (const list of lists) if (list[round] && items.length < max && !items.some((i) => i.title === list[round].title)) items.push(list[round]);
+  }
+  if (!items.length) return null;
+  const sources = [...new Set(items.map((i) => i.source))];
+  return { source: sources.join(", "), items };
+}
+
+async function news(fetchImpl, { local = false, city = "" } = {}) {
+  if (local) {
+    const place = city ? await geocode(city, fetchImpl).catch(() => null) : null;
+    const feed = await localNewsFeed(place?.admin1 ?? "Rondônia", fetchImpl);
+    if (feed) {
+      const titles = feed.items.map((i) => i.title);
+      return {
+        source: feed.source,
+        text: "manchetes da região (resuma em poucas frases): " + feed.items.map((i) => `"${i.title}" (${i.source})`).join("; "),
+        titles,
+      };
+    }
+  }
   const feed = await newsFeed(fetchImpl);
   if (!feed) return null;
   const titles = feed.items.map((i) => i.title);
@@ -295,7 +465,7 @@ export async function lookup(found, { city = "", fetchImpl = fetch } = {}) {
   try {
     if (found.kind === "money") return await money(found.codes, fetchImpl);
     if (found.kind === "weather") return await weather(found.city || city || "São Paulo", found.day, fetchImpl);
-    if (found.kind === "news") return await news(fetchImpl);
+    if (found.kind === "news") return await news(fetchImpl, { local: found.local, city });
     if (found.kind === "wiki") return await wiki(found.query, fetchImpl);
   } catch {}
   return null;
@@ -345,7 +515,7 @@ export function spokenTime(now = new Date()) {
  * The daily briefing: greeting, day and time, the weather in the user's city and the top
  * headlines. Parts whose lookup failed are simply left out.
  */
-export function buildBriefing(now = new Date(), { weather = null, news = null, name = "", birthdays = [], curiosity = null } = {}) {
+export function buildBriefing(now = new Date(), { weather = null, news = null, local = null, name = "", birthdays = [], curiosity = null } = {}) {
   const h = now.getHours();
   const [greeting, wish] =
     h >= 5 && h < 12 ? ["Bom dia", "um excelente dia"] : h >= 12 && h < 18 ? ["Boa tarde", "uma excelente tarde"] : ["Boa noite", "uma excelente noite"];
@@ -364,10 +534,14 @@ export function buildBriefing(now = new Date(), { weather = null, news = null, n
         (w.day.rain >= 30 ? `, com ${w.day.rain} por cento de chance de chuva.` : ".")
       : "";
     parts.push(`Em ${w.place}, ${now_}${day}`.trim());
+    const alert = (w.alerts ?? [])[0];
+    if (alert) parts.push(`O INMET tem um alerta de ${alert.severity} para ${alert.what}${alert.now ? "" : " chegando"}.`);
     if (isHot(w)) parts.push("Vai fazer calor, mestre: não se esqueça de beber bastante água.");
   }
   const titles = (news?.titles ?? []).slice(0, 3);
   if (titles.length) parts.push(`Nas notícias, segundo ${/^g1$/i.test(news.source) ? "o" : "a"} ${news.source}: ${titles.map((t) => t.replace(/[.!?…]+$/, "")).join(". ")}.`);
+  const near = local?.items?.[0];
+  if (near) parts.push(`E aqui na região, segundo o ${near.source}: ${near.title.replace(/[.!?…]+$/, "")}.`);
   if (curiosity) {
     const year = curiosity.year < 0 ? `${-curiosity.year} antes de Cristo` : curiosity.year;
     parts.push(`Uma curiosidade: neste mesmo dia, em ${year}: ${curiosity.text}`);
@@ -383,5 +557,8 @@ export async function briefing({ city = "", now = new Date(), fetchImpl = fetch,
     lookup({ kind: "news" }, { fetchImpl }),
     onThisDay(now, fetchImpl),
   ]);
-  return buildBriefing(now, { weather, news, name, birthdays, curiosity });
+  // a headline from the user's state, when Alfred knows papers there
+  const state = weather?.data?.state ?? "";
+  const local = state ? await localNewsFeed(state, fetchImpl, 1).catch(() => null) : null;
+  return buildBriefing(now, { weather, news, local, name, birthdays, curiosity });
 }

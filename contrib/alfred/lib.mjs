@@ -44,11 +44,19 @@ export const DEFAULT_SYSTEM_PROMPT = [
   "Você é Alfred, um mordomo clássico e assistente virtual pessoal, no estilo do mordomo",
   "inglês tradicional: educado, elegante, prestativo, discreto e leal, com um humor britânico",
   "sutil e seco. Fale com formalidade e polidez, sem gírias. Responda sempre em português do",
-  "Brasil, a menos que o usuário fale em outro idioma. Suas respostas são lidas em voz alta,",
-  "então seja conciso (de 1 a 4 frases, salvo quando pedirem detalhes), evite markdown, listas",
-  "longas, emojis e blocos de código, e nunca invente fatos — diga quando não souber.",
-  "Chame o usuário de 'mestre' (ou 'mestre' e o primeiro nome, quando souber); como pronome,",
-  "use 'o senhor' (por exemplo: 'Pois não, mestre. O senhor deseja mais alguma coisa?').",
+  "Brasil, a menos que o usuário fale em outro idioma. Chame o usuário de 'mestre' (ou 'mestre'",
+  "e o primeiro nome, quando souber); como pronome, use 'o senhor' (por exemplo: 'Pois não,",
+  "mestre. O senhor deseja mais alguma coisa?').",
+  "COMO RESPONDER — tudo o que você escreve é lido em voz alta:",
+  "1) Dê a resposta logo na primeira frase, sem rodeios e sem repetir a pergunta.",
+  "2) Seja breve: uma ou duas frases curtas, o que se diz num só fôlego. Estenda-se só quando o",
+  "mestre pedir detalhes (por exemplo: 'me explica em detalhes'), e mesmo então em frases curtas.",
+  "3) Nada de markdown, listas, tabelas, emojis ou código.",
+  "4) Escreva números como se falam: horas ('às duas e meia da tarde'), dinheiro ('cinco reais e",
+  "trinta centavos') e datas ('três de maio'), sem siglas nem símbolos.",
+  "5) Varie as palavras: não comece todas as respostas do mesmo jeito.",
+  "6) Se a mensagem vier sem sentido (o microfone pode ter ouvido errado), peça com gentileza",
+  "que o mestre repita. Nunca invente fatos: quando não souber, diga que não sabe.",
 ].join(" ");
 
 // 20130 is taken by the 9Router embedded service and the Kiro MITM proxy.
@@ -108,7 +116,12 @@ function parsePort(value, fallback) {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : fallback;
 }
 
-export const BRAINS = Object.freeze(["omniroute", "local", "gemini", "openai", "claude"]);
+export const BRAINS = Object.freeze(["omniroute", "local", "gemini", "groq", "openai", "claude"]);
+
+// Groq: free plan (no card), very fast open models, OpenAI-compatible. Alfred's reserve brain.
+export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+export const GROQ_DEFAULT_MODEL = "openai/gpt-oss-120b";
+export const CLAUDE_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh", "max"]);
 
 export function loadConfig(env = process.env) {
   const baseUrl = (env.OMNIROUTE_URL || "http://localhost:20128/v1").replace(/\/+$/, "");
@@ -135,7 +148,19 @@ export function loadConfig(env = process.env) {
     // used instead of openaiModel while the web is on (the older *-search-preview models were retired)
     openaiSearchModel: env.ALFRED_OPENAI_SEARCH_MODEL || "gpt-5-search-api",
     claudeBin: env.ALFRED_CLAUDE_BIN || "claude",
-    claudeModel: SAFE_ARG.test(env.ALFRED_CLAUDE_MODEL || "") ? env.ALFRED_CLAUDE_MODEL : "",
+    // "" or "auto": a light model (haiku) for everyday talk, a stronger one (sonnet) when the
+    // question asks for depth (claudeModelFor). Any other value is always used.
+    claudeModel:
+      SAFE_ARG.test(env.ALFRED_CLAUDE_MODEL || "") && env.ALFRED_CLAUDE_MODEL.toLowerCase() !== "auto" ? env.ALFRED_CLAUDE_MODEL : "",
+    claudeEffort: CLAUDE_EFFORTS.includes(String(env.ALFRED_CLAUDE_EFFORT || "").toLowerCase())
+      ? String(env.ALFRED_CLAUDE_EFFORT).toLowerCase()
+      : "low",
+    groqKey: env.GROQ_API_KEY || "",
+    groqModel: env.ALFRED_GROQ_MODEL || GROQ_DEFAULT_MODEL,
+    groqUrl: (env.ALFRED_GROQ_URL || GROQ_BASE_URL).replace(/\/+$/, ""),
+    // When the brain fails before saying anything (limit reached, no internet to it…), Alfred
+    // answers with the next free brain that has a key: Gemini, then Groq. "off" turns this off.
+    fallback: String(env.ALFRED_RESERVA || "").toLowerCase() === "off" ? "off" : "on",
     // Internet: "full" = search + read pages (default), "search" = search only, "off".
     web: ["full", "search", "off"].includes(String(env.ALFRED_WEB || "").toLowerCase())
       ? String(env.ALFRED_WEB).toLowerCase()
@@ -147,6 +172,8 @@ export function loadConfig(env = process.env) {
     pc: String(env.ALFRED_PC || "").toLowerCase() === "off" ? "off" : "on",
     // Memory file (memoria.json next to Alfred by default); "off" turns the memory off.
     memory: env.ALFRED_MEMORY || "",
+    // Reminders, alarms, timers and lists (lembretes.json next to Alfred); "off" turns them off.
+    agenda: env.ALFRED_LEMBRETES || "",
     ...resolveTts(env),
   };
 }
@@ -394,7 +421,7 @@ export function liteWebSystemPrompt(config, now = new Date()) {
 
 /** True for brains that cannot search the web themselves (they get the "internet leve"). */
 export function usesLiteWeb(config, brain) {
-  return brain === "local" || brain === "gemini";
+  return brain === "local" || brain === "gemini" || brain === "groq";
 }
 
 /**
@@ -417,6 +444,14 @@ export function buildChatCall(config, brain, messages, now = new Date(), { found
     body.model = config.geminiModel;
     body.reasoning_effort = "low"; // short spoken replies; keeps the first word quick
     return { url: `${config.geminiUrl}/chat/completions`, apiKey: config.geminiKey, body };
+  }
+  if (brain === "groq") {
+    const body = buildChatRequest(config, withContext(messages, now, found), now, { clock: false });
+    body.messages[0].content = liteWebSystemPrompt(config, now);
+    body.model = config.groqModel;
+    // gpt-oss thinks before answering: a little is enough for a spoken reply
+    if (/gpt-oss/i.test(config.groqModel)) body.reasoning_effort = "low";
+    return { url: `${config.groqUrl}/chat/completions`, apiKey: config.groqKey, body };
   }
   if (brain === "openai") {
     // OpenAI Chat Completions searches the web only with its search model, which looks things up
@@ -442,7 +477,7 @@ export function buildChatCall(config, brain, messages, now = new Date(), { found
  * cmd.exe, so then only constant, validated arguments are passed and the persona rides in the
  * prompt; a full path to claude.exe runs directly.
  */
-export function buildClaudeCommand(config, platform = process.platform, bin = config.claudeBin) {
+export function buildClaudeCommand(config, platform = process.platform, bin = config.claudeBin, said = "") {
   const shell = platform === "win32" && !/\.exe$/i.test(bin);
   // Only Claude Code's read-only web tools, pre-approved so -p never stops to ask.
   const tools = claudeWebTools(config);
@@ -457,10 +492,27 @@ export function buildClaudeCommand(config, platform = process.platform, bin = co
     shell ? `"${tools}"` : tools, // quoted for cmd.exe, where a comma can split arguments
   ];
   if (tools) args.push("--allowedTools", shell ? `"${tools}"` : tools);
-  if (config.claudeModel) args.push("--model", config.claudeModel);
+  // Claude Code on the Pro/Max plan uses the same usage limit as the person's own chats with
+  // Claude: a lighter model and little thinking make each answer cheaper and quicker to start.
+  const model = claudeModelFor(config, said);
+  args.push("--model", model, "--effort", config.claudeEffort);
+  if (!config.claudeModel) args.push("--fallback-model", model === "haiku" ? "sonnet" : "haiku");
+  // Alfred needs no MCP servers or skills: skipping them makes Claude Code start sooner.
+  args.push("--strict-mcp-config", "--disable-slash-commands");
   const personaInArgs = !shell;
   if (personaInArgs) args.push("--system-prompt", buildSystemPrompt(config, new Date(), { web: !!tools }));
   return { command: bin, args, shell, personaInArgs };
+}
+
+// Questions that deserve the stronger model: explanations, writing, plans, comparisons.
+const NEEDS_DEPTH =
+  /\b(explic|detalh|por ?qu[eê]\b|compar|analis|anális|resum|planej|escrev|redij|redação|traduz|calcul|pesquis[ae] (?:a fundo|bem)|me ensin|passo a passo|receita|vantagens|diferença)/i;
+
+/** The Claude model for this message: the configured one, else "sonnet" for depth, else "haiku". */
+export function claudeModelFor(config, said = "") {
+  if (config.claudeModel) return config.claudeModel;
+  const text = String(said ?? "");
+  return text.length > 220 || NEEDS_DEPTH.test(text) ? "sonnet" : "haiku";
 }
 
 /** Claude Code tools for the web setting: "WebSearch,WebFetch", "WebSearch" or "". */

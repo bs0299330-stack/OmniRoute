@@ -443,6 +443,7 @@
       async function ask(text, { viaVoice = false } = {}) {
         text = text.trim();
         if (!text || busy) return;
+        quietAlarm();
         busy = true;
         cueNext = viaVoice;
         stopListening();
@@ -582,6 +583,8 @@
       let silentRounds = 0;
       let cueNext = false; // bipe só quando é a vez do usuário falar de novo, não a cada reinício
       let retryTimer = null;
+      let retrying = false; // esperando os 30 s depois de um problema no microfone
+      let recActivity = 0; // quando o reconhecimento deu sinal de vida pela última vez
 
       if (!Recognition) {
         $("wake").disabled = true;
@@ -616,7 +619,9 @@
       function retryListening(message) {
         setStatus(message, true);
         clearTimeout(retryTimer);
+        retrying = true;
         retryTimer = setTimeout(() => {
+          retrying = false;
           clearStatus(message);
           scheduleListening();
         }, 30_000);
@@ -653,8 +658,10 @@
         let heardSomething = false;
         let fatal = null;
 
+        recActivity = Date.now();
         r.onresult = (e) => {
           heardSomething = true;
+          recActivity = Date.now();
           let interim = "";
           for (let i = e.resultIndex; i < e.results.length; i++) {
             const res = e.results[i];
@@ -1073,6 +1080,94 @@
         },
         show: (view) =>
           renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view),
+      });
+
+      // ---------- Vigia: o Alfred volta a ouvir sozinho ----------
+      // Depois que o notebook dorme, a tela bloqueia, a internet cai ou o fone é trocado, o
+      // reconhecimento de voz às vezes para sem avisar. A cada 15 segundos, se ele devia estar
+      // esperando “Alfred” e não está, volta a ouvir; depois de um sono, recomeça tudo do zero.
+      let lastTick = Date.now();
+      function wakeUp(fresh = false) {
+        try {
+          if (audioCtx?.state === "suspended" && !soundLocked) audioCtx.resume();
+        } catch {}
+        if (busy || speaker.speaking || intro || listening === "command" || voiceSession) return;
+        // um reconhecimento “vivo” que não dá sinal há 5 minutos (ou depois de um sono) é trocado
+        if (rec && listening === "wake" && (fresh || Date.now() - recActivity > 5 * 60_000)) stopListening();
+        if (!rec && !scheduled && !retrying && $("wake").checked && Recognition) scheduleListening();
+      }
+      setInterval(() => {
+        const now = Date.now();
+        const slept = now - lastTick > 60_000; // os relógios da página pararam: o PC dormiu
+        lastTick = now;
+        if (slept && claps && $("clap").checked) {
+          disableClaps(); // o microfone das palmas também pode ter sido perdido
+          enableClaps();
+        }
+        wakeUp(slept);
+      }, 15_000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) wakeUp();
+      });
+      window.addEventListener("online", () => wakeUp(true));
+      // trocou o microfone ou o fone de ouvido: abre o reconhecimento (e as palmas) de novo
+      navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+        setTimeout(() => {
+          if (claps && $("clap").checked) {
+            disableClaps();
+            enableClaps();
+          }
+          wakeUp(true);
+        }, 1500);
+      });
+
+      // ---------- Avisos: lembretes, despertador, timer e alertas do tempo ----------
+      // O servidor guarda o que venceu; a página pergunta a cada 5 segundos e fala o que é novo
+      // (com um “dim-dom” antes), assim que o Alfred não estiver falando nem ouvindo uma frase.
+      let lastAviso = Number(store.get("aviso", 0)) || Date.now() - 120_000;
+      const avisosQueue = [];
+      let alarmAgain = null; // o despertador toca de novo (até 2 vezes) se ninguém mexer no Alfred
+      function sayAvisos() {
+        if (!avisosQueue.length || busy || speaker.speaking || intro) return;
+        // no meio de uma conversa por voz, o aviso entra; depois ele volta a ouvir sozinho
+        if (listening === "command") stopListening();
+        const a = avisosQueue.shift();
+        addEntry("note", a.text);
+        if (!$("speak").checked) return setStatus(a.text, true);
+        earcons.chime(a.kind === "alarm" ? 3 : 1);
+        setTimeout(() => speaker.sayAll(a.text), a.kind === "alarm" ? 2100 : 700);
+        if (a.kind === "alarm" && !a.again) alarmAgain = { ...a, again: true, left: 2, timer: setTimeout(ringAgain, 60_000) };
+      }
+      function ringAgain() {
+        if (!alarmAgain) return;
+        avisosQueue.push(alarmAgain);
+        sayAvisos();
+        alarmAgain = --alarmAgain.left > 0 ? { ...alarmAgain, timer: setTimeout(ringAgain, 60_000) } : null;
+      }
+      const quietAlarm = () => {
+        if (!alarmAgain) return;
+        clearTimeout(alarmAgain.timer);
+        alarmAgain = null;
+      };
+      for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, quietAlarm);
+      async function pollAvisos() {
+        try {
+          const res = await fetch("api/avisos?depois=" + lastAviso, { headers: authHeaders(), signal: AbortSignal.timeout(8000) });
+          if (res.ok) {
+            const { avisos = [] } = await res.json();
+            for (const a of avisos) {
+              if (!(a.id > lastAviso)) continue;
+              lastAviso = a.id;
+              avisosQueue.push(a);
+            }
+            store.set("aviso", lastAviso);
+          }
+        } catch {}
+        sayAvisos();
+      }
+      setInterval(pollAvisos, 5000);
+      speaker.onChange((speaking) => {
+        if (!speaking) setTimeout(sayAvisos, 400);
       });
 
       syncVoiceUi();

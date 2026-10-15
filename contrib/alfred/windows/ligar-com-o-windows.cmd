@@ -19,7 +19,7 @@ echo.
 choice /c SN /n /m " Abrir o Alfred no Edge sempre que o PC ligar? E o que deixa as palmas prontas. [S/N] "
 if errorlevel 2 goto sem_navegador
 >> "%STARTUP%\Alfred.cmd" echo ping -n 6 127.0.0.1 ^>nul
->> "%STARTUP%\Alfred.cmd" echo start "" msedge --app=http://localhost:%PORT%/ --user-data-dir="%%LOCALAPPDATA%%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized
+>> "%STARTUP%\Alfred.cmd" echo start "" msedge --app=http://localhost:%PORT%/ --user-data-dir="%%LOCALAPPDATA%%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding
 :sem_navegador
 echo.
 echo  Pronto! O Alfred vai ligar sozinho quando voce entrar no Windows.

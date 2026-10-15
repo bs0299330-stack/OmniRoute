@@ -22,6 +22,7 @@ $Dest = if ($env:ALFRED_INSTALL_DIR) { $env:ALFRED_INSTALL_DIR } else {
 # Mantenha em dia com a pasta contrib/alfred (um teste confere esta lista).
 $Files = @(
   "README.md",
+  "agenda.mjs",
   "alfred.env.example",
   "brain.mjs",
   "care.mjs",

@@ -57,9 +57,89 @@ const SOFT_BREAK = /[,;:](?=\s)/g;
 // The list of links a web answer ends with ("Sources:" / "Fontes:") is shown, not read aloud.
 export const SOURCES_HEADING = /(?:^|\n)[ \t]*(?:\*\*|#+[ \t]*)?(?:sources|fontes|referências|referencias)(?:\*\*)?[ \t]*:/i;
 
-/** Strips what should not be read aloud: markdown, links, emoji, code. */
-export function cleanForSpeech(text) {
+// ---------- Numbers said the Brazilian way ----------
+const UNITS = ["zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "catorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"];
+const TENS = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"];
+const HUNDREDS = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos"];
+const unitWord = (n, feminine) => (feminine && n === 1 ? "uma" : feminine && n === 2 ? "duas" : UNITS[n]);
+
+function below1000(n, feminine) {
+  if (n === 100) return "cem";
+  const parts = [];
+  const h = Math.floor(n / 100);
+  const r = n % 100;
+  if (h) parts.push(feminine && h > 1 ? HUNDREDS[h].replace(/os$/, "as") : HUNDREDS[h]);
+  if (r >= 20) parts.push(TENS[Math.floor(r / 10)] + (r % 10 ? ` e ${unitWord(r % 10, feminine)}` : ""));
+  else if (r) parts.push(unitWord(r, feminine));
+  return parts.join(" e ");
+}
+
+/**
+ * A whole number in words, as said in Brazil: 1234 → "mil duzentos e trinta e quatro".
+ * `feminine` for "uma hora", "duas horas", "duzentas pessoas". Numbers from a billion up stay in digits.
+ */
+export function numberWords(value, { feminine = false } = {}) {
+  const n = Math.floor(Math.abs(Number(value)));
+  if (!Number.isFinite(n) || n >= 1e9) return String(value);
+  if (n === 0) return "zero";
+  const groups = [
+    [Math.floor(n / 1e6), (g) => (g === 1 ? "um milhão" : `${below1000(g, false)} milhões`)],
+    [Math.floor(n / 1000) % 1000, (g) => (g === 1 ? "mil" : `${below1000(g, feminine)} mil`)],
+    [n % 1000, (g) => below1000(g, feminine)],
+  ].filter(([g]) => g);
+  return groups
+    .map(([g, say], i) => {
+      const words = say(g);
+      // "mil e quinhentos", "mil e vinte", but "mil duzentos e trinta"
+      const joined = i > 0 && (g < 100 || g % 100 === 0) ? `e ${words}` : words;
+      return i === 0 ? words : joined;
+    })
+    .join(" ");
+}
+
+const MONEY_TEXT = /\b(R|US)\$\s?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(?!\d)(?:\s?(mil|milh[õo]es|milh[ãa]o|bilh[õo]es|bilh[ãa]o)\b)?/g;
+const CLOCK_TEXT = /\b([01]?\d|2[0-3])(?:h|:)([0-5]\d)\b(?!:)|\b([01]?\d|2[0-3])h\b/g;
+
+function moneyWords(_, cur, whole, cents, scale) {
+  const [one, many] = cur === "R" ? ["real", "reais"] : ["dólar", "dólares"];
+  const n = Number(whole.replace(/\./g, ""));
+  if (scale) {
+    const amount = cents ? `${numberWords(n)} vírgula ${numberWords(Number(cents))}` : numberWords(n);
+    return `${amount} ${scale} de ${many}`;
+  }
+  const c = cents ? Number(cents.padEnd(2, "0")) : 0;
+  const centsWords = c ? `${numberWords(c)} ${c === 1 ? "centavo" : "centavos"}` : "";
+  if (!n) return centsWords || `zero ${many}`;
+  const main = `${numberWords(n)}${n >= 1e6 && n % 1e6 === 0 ? " de" : ""} ${n === 1 ? one : many}`;
+  return centsWords ? `${main} e ${centsWords}` : main;
+}
+
+function clockWords(_, h, m, hourOnly) {
+  if (hourOnly !== undefined) {
+    const hour = Number(hourOnly);
+    return `${numberWords(hour, { feminine: true })} ${hour === 1 ? "hora" : "horas"}`;
+  }
+  const hour = Number(h);
+  const min = Number(m);
+  if (!min) return `${numberWords(hour, { feminine: true })} ${hour === 1 ? "hora" : "horas"}`;
+  return `${numberWords(hour, { feminine: true })} e ${numberWords(min)}`;
+}
+
+/**
+ * Writes out what a voice tends to misread: money ("R$ 5,30" → "cinco reais e trinta centavos"),
+ * clock times ("14h30" → "catorze e trinta"), "%" and "°C". Other numbers stay as they are.
+ */
+export function speakNumbers(text) {
   return String(text ?? "")
+    .replace(MONEY_TEXT, moneyWords)
+    .replace(CLOCK_TEXT, clockWords)
+    .replace(/(\d)\s?%/g, "$1 por cento")
+    .replace(/(\d+(?:,\d+)?)\s?°\s?C?(?![\p{L}\d])/gu, (_, d) => `${d} ${d === "1" ? "grau" : "graus"}`);
+}
+
+/** Strips what should not be read aloud: markdown, links, emoji, code; writes out money and times. */
+export function cleanForSpeech(text) {
+  return speakNumbers(String(text ?? ""))
     .replace(/```[\s\S]*?(```|$)/g, " ")
     .replace(/`([^`]*)`/g, "$1")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
@@ -511,7 +591,7 @@ export function createSpeaker({
   };
 }
 
-/** Soft cues: "listen" (rising) when the mic opens, "done" (falling) when it closes. */
+/** Soft cues: "listen" (rising) when the mic opens, "done" (falling) when it closes, "chime" for a reminder. */
 export function createEarcons() {
   let ctx = null;
   function play(from, to) {
@@ -537,5 +617,12 @@ export function createEarcons() {
   return {
     listen: () => play(660, 990),
     done: () => play(880, 520),
+    /** A soft "ding-dong" before a reminder, a timer or an alert; `times` rings it again. */
+    chime(times = 1) {
+      for (let i = 0; i < times; i++) {
+        setTimeout(() => play(988, 1046), i * 700);
+        setTimeout(() => play(784, 740), i * 700 + 260);
+      }
+    },
   };
 }

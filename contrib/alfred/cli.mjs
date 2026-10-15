@@ -4,7 +4,7 @@
 //
 //   node contrib/alfred/cli.mjs                  conversa por texto (+ voz, se configurada)
 //   node contrib/alfred/cli.mjs --conversa       mãos livres: ouve, responde, ouve de novo
-//   node contrib/alfred/cli.mjs --cerebro=claude usa o Claude Code como cérebro (ou local, gemini…)
+//   node contrib/alfred/cli.mjs --cerebro=claude usa o Claude Code como cérebro (ou local, gemini, groq…)
 //
 // Lê contrib/alfred/alfred.env, como o servidor.
 

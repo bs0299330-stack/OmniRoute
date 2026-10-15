@@ -14,13 +14,17 @@ ele faz, e três jeitos de usar:
 O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
 (herda provedores, combos e fallback), senão a **IA do PC** pelo Ollama (grátis, sem chave), senão
 o **Gemini** do Google (grátis, com
-`GEMINI_API_KEY`), senão a **OpenAI** (com `OPENAI_API_KEY`), senão o **Claude**, pelo Claude
-Code instalado no PC (`claude -p`, só com as ferramentas de ler a web).
+`GEMINI_API_KEY`), senão o **Groq** (grátis, com `GROQ_API_KEY`), senão a **OpenAI** (com
+`OPENAI_API_KEY`), senão o **Claude**, pelo Claude Code instalado no PC (`claude -p`, só com as
+ferramentas de ler a web). Se o cérebro falhar antes de responder, o Gemini e o Groq entram de
+**reserva**.
 
 - Sem dependências: um servidor Node (`server.mjs`) + uma página HTML.
 - Fala → texto pelo navegador (Web Speech API) e texto → fala por uma **voz de IA da OpenAI**
   (`gpt-4o-mini-tts`, direto ou via OmniRoute) ou, sem configurar nada, pela voz do navegador.
 - Conversa contínua: diga "Alfred, …", ele responde e já escuta a sua próxima frase.
+- Se o microfone parar (o notebook dormiu, a tela bloqueou, a internet caiu, trocou o fone), ele
+  volta a ouvir sozinho em alguns segundos.
 - Responde em streaming e começa a falar a primeira frase antes da resposta terminar.
 - A chave do OmniRoute fica no servidor — nunca vai para o navegador.
 
@@ -132,6 +136,14 @@ Rode o instalador de novo (o comando do PowerShell acima). Ele pergunta:
 
 Só Enter mantém o cérebro atual. A escolha fica gravada em `ALFRED_BRAIN` no `alfred.env`.
 
+**Claude Code gasta o mesmo limite das suas conversas com o Claude.** Cada pergunta ao Alfred sai
+do mesmo saldo do seu plano Pro ou Max. Por isso, com o Claude, o Alfred usa o modelo **leve**
+(`haiku`) no dia a dia e o **mais forte** (`sonnet`) só quando a pergunta pede explicação, texto,
+plano ou comparação, sempre pensando pouco (`--effort low`), e sem carregar extensões do Claude
+Code que ele não usa: assim cada resposta começa mais rápido e gasta menos. `ALFRED_CLAUDE_MODEL`
+fixa um modelo só; `ALFRED_CLAUDE_EFFORT` muda quanto ele pensa. Para o dia a dia, o Gemini
+(grátis) poupa o seu plano.
+
 ### 1) IA no seu PC (Ollama)
 
 Grátis, **sem chave e sem conta**, e funciona até sem internet. O instalador instala o
@@ -168,6 +180,18 @@ por dia. Quando passa, o Alfred avisa e volta a funcionar sozinho depois. No pla
 **não pesquisa na internet**: para cotações, notícias ou clima de agora, o Alfred diz que não
 consegue ver. Para voltar ao Claude, troque para `ALFRED_BRAIN=claude`.
 
+### 3) Cérebro reserva: Groq (grátis)
+
+O Groq roda modelos abertos muito rápidos e tem um plano grátis que pede só um e-mail, sem cartão.
+Crie a chave em <https://console.groq.com/keys> e coloque em `GROQ_API_KEY=` no `alfred.env`.
+
+Com a chave, ele vira **reserva**: quando o cérebro escolhido falha antes de dizer qualquer coisa
+(o limite do Gemini ou do seu plano do Claude acabou, a IA do PC está desligada, a internet até ele
+caiu), o Alfred responde com o Gemini e, se também falhar, com o Groq. A janela preta mostra quem
+respondeu. `ALFRED_RESERVA=off` desliga a reserva; `ALFRED_BRAIN=groq` usa o Groq sempre. O modelo
+padrão é `openai/gpt-oss-120b` (`ALFRED_GROQ_MODEL` troca). Como o Gemini, ele usa a internet
+leve do Alfred.
+
 ## Internet
 
 O Alfred pesquisa e lê páginas na internet quando a pergunta envolve algo atual (notícias, preços,
@@ -184,14 +208,15 @@ lista de links aparece no histórico, clicável, mas não é lida em voz alta.
 | IA do PC  | **Internet leve** (abaixo): o Alfred busca antes e entrega o resultado à IA do PC               |
 
 **Internet leve (grátis, sem chave):** a IA do PC e o Gemini não pesquisam sozinhos. Para eles, o
-próprio Alfred reconhece quatro tipos de pergunta, busca a resposta em serviços públicos gratuitos
+próprio Alfred reconhece estes tipos de pergunta, busca a resposta em serviços públicos gratuitos
 e entrega à IA, que responde citando a fonte (`weblite.mjs`):
 
 | Pergunta                                   | Onde o Alfred busca                                                       |
 | ------------------------------------------ | ------------------------------------------------------------------------- |
 | Dólar, euro, libra, bitcoin, cotação       | AwesomeAPI (ao vivo); reserva: ExchangeRate-API (do dia) e CoinGecko       |
-| Clima, chuva, temperatura (hoje, amanhã)   | Open-Meteo. Sem cidade na pergunta, usa `ALFRED_CITY` (padrão São Paulo)   |
+| Clima, chuva, temperatura (hoje, amanhã)   | Open-Meteo (com a chuva das próximas horas) e os **alertas do INMET** para a cidade. Sem cidade na pergunta, usa `ALFRED_CITY` (padrão São Paulo) |
 | Notícias, manchetes                        | Agência Brasil; reserva: g1                                                |
+| Notícias "de Rondônia", "da região", "daqui" | Extra de Rondônia, Vilhena Notícias e g1 Rondônia                        |
 | "Quem é / o que é / onde fica …"           | Wikipédia                                                                  |
 
 Outras perguntas vão direto para a IA, sem busca. Se o serviço não responder, o Alfred avisa que
@@ -278,12 +303,20 @@ reconhecimento de voz).
 Na **primeira vez que o Alfred abre no dia** (por exemplo, quando o PC liga com
 `ligar-com-o-windows.cmd`), ele fala sozinho um bom dia completo: o dia e a hora, o clima de hoje
 na sua cidade (Open-Meteo), as três principais manchetes (Agência Brasil) e uma **curiosidade do
-dia**, algo que aconteceu nesta data (seção "Neste dia" da Wikipédia). Se for fazer calor, ele
-lembra de beber água. Ao reabrir no mesmo dia, ele diz só "Alfred a postos". Depois do meio-dia
+dia**, algo que aconteceu nesta data (seção "Neste dia" da Wikipédia). Se houver **alerta do INMET**
+(tempestade, ventania, baixa umidade…) para a sua cidade, ele avisa; com a cidade em Rondônia,
+traz também uma **manchete da região** (Extra de Rondônia, Vilhena Notícias ou g1 Rondônia). Se
+for fazer calor, ele lembra de beber água. Ao reabrir no mesmo dia, ele diz só "Alfred a postos". Depois do meio-dia
 vira "Boa tarde" e, à noite, "Boa noite".
 
 A cidade é perguntada pelo instalador uma vez e fica no `alfred.env` deste PC
 (`ALFRED_CITY="Sua Cidade"`). Sem ela, o clima é o de São Paulo.
+
+**Alerta de tempo forte:** com a cidade configurada, o Alfred confere os alertas do INMET a cada 30
+minutos. Quando sai um alerta de **perigo** ou **grande perigo** para ela, ele avisa sozinho, uma
+vez, com um "dim-dom" antes ("Atenção, mestre: o INMET emitiu um alerta de perigo para tempestade
+em Cabixi, até o fim do dia."). Entre 22h e 6h ele espera amanhecer. Os alertas mais leves
+("perigo potencial") aparecem só no bom dia e quando você pergunta do tempo.
 
 ### Mexer no PC (Windows)
 
@@ -320,6 +353,11 @@ frase, como o mordomo do Batman.
 - **Dia quente** (32 graus ou mais): quando você pergunta do clima, ele lembra de beber água. Uma
   vez por dia. O bom dia também avisa.
 
+**Ele fala para ser ouvido:** dá a resposta logo na primeira frase, fala pouco (o que se diz num
+fôlego) e só se estende quando você pede ("me explica em detalhes"). Valores, horas e símbolos
+saem como se fala: "R$ 5,30" vira "cinco reais e trinta centavos", "14h30" vira "catorze e
+trinta", "30%" vira "30 por cento" (`speakNumbers` em `public/voice.mjs`).
+
 O jeito de falar fica em `DEFAULT_SYSTEM_PROMPT` (`lib.mjs`) e pode ser trocado com
 `ALFRED_SYSTEM_PROMPT`; os lembretes ficam em `care.mjs`.
 
@@ -340,6 +378,32 @@ O Alfred aprende sozinho com o que você conta na conversa e guarda no arquivo `
 | "Esquece tudo"                                                   | Pergunta antes; só com **sim** apaga |
 
 `ALFRED_MEMORY=off` no `alfred.env` desliga a memória.
+
+### Lembretes, despertador, timer e listas
+
+O próprio Alfred cuida disso, sem a IA e sem internet, e guarda tudo em `lembretes.json`, **só
+neste PC** (`agenda.mjs`). Na hora certa ele toca um "dim-dom" e fala o aviso. O despertador toca
+três vezes e, se ninguém mexer no Alfred, de novo depois de 1 e de 2 minutos.
+
+| Você diz                                                        | O Alfred                                         |
+| --------------------------------------------------------------- | ------------------------------------------------ |
+| "Me lembra de tomar o remédio às 15h"                           | Lembra hoje às 15 horas                          |
+| "Me avisa daqui a 20 minutos para tirar o bolo"                 | Lembra daqui a 20 minutos                        |
+| "Amanhã às 8 me lembra de ligar pro João", "sexta às 9…"        | Lembra no dia e na hora                          |
+| "Me lembra de pagar a conta de luz"                             | Pergunta "Para quando, mestre?"                  |
+| "Me acorda às 6", "coloca o despertador para as 7 e meia"       | Despertador (sem "da tarde", é de manhã)         |
+| "Me acorda todos os dias às 5 e meia"                           | Despertador todo dia                             |
+| "Timer de 5 minutos", "marca 10 minutos"                        | Timer                                            |
+| "Quanto falta no timer?"                                        | Diz quanto falta                                 |
+| "Quais são meus lembretes?", "tem algum alarme?"                | Diz o que está marcado                           |
+| "Cancela o lembrete do bolo", "desliga o despertador", "apaga todos os timers" | Cancela                           |
+| "Coloca arroz, feijão e leite na lista de compras"              | Anota na lista (a "lista" sem nome é a de compras) |
+| "Tira o leite da lista", "o que tem na lista?", "limpa a lista de compras" | Tira, lê ou apaga                     |
+| "Anota pagar o IPTU na lista de tarefas"                        | Outras listas, com o nome que você der           |
+
+"Às 7", sem dizer de manhã ou de noite, é o próximo 7 horas que ainda vai chegar. Se o PC estava
+desligado ou dormindo na hora, o Alfred avisa assim que voltar ("o computador estava desligado na
+hora de um lembrete…"). `ALFRED_LEMBRETES=off` desliga tudo isso.
 
 ### Chamar com duas palmas
 
@@ -491,18 +555,23 @@ ele envia sozinho.
 ## Arquitetura
 
 ```
-Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Ollama | Gemini | OpenAI | claude -p
-          ▲                                       │
+Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stream──▶  brain.mjs → OmniRoute | Ollama | Gemini | Groq | OpenAI | claude -p
+          ▲                                       │                        (reserva: Gemini, depois Groq)
           ├────────── SSE {text} ◀────────────────┘
-          └── POST /api/tts (um trecho) ──▶ server.mjs ──▶ ElevenLabs, OpenAI ou OmniRoute (opcional)
+          ├── POST /api/tts (um trecho) ──▶ server.mjs ──▶ ElevenLabs, OpenAI ou OmniRoute (opcional)
+          └── GET /api/avisos (a cada 5 s) ◀── server.mjs ◀── lembretes vencidos (agenda.mjs) e alertas do INMET
 ```
 
 - `lib.mjs` — funções puras (config, prompt de sistema, validação, parser SSE, comando do Claude
   Code, argumentos do sox); testadas em `tests/unit/alfred-lib.test.ts` e `alfred-brain.test.ts`.
-- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Ollama (IA do PC), Gemini, OpenAI ou Claude Code, em streaming.
+- `brain.mjs` — o cérebro: escolhe e conversa com OmniRoute, Ollama (IA do PC), Gemini, Groq, OpenAI ou Claude Code, em streaming,
+  com os cérebros grátis de reserva.
   O texto do usuário vai para o `claude` só pelo stdin, nunca pela linha de comando.
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
-- `weblite.mjs` — "internet leve" (cotações, clima, notícias, Wikipédia) e o bom dia.
+- `weblite.mjs` — "internet leve" (cotações, clima e chuva das próximas horas, alertas do INMET,
+  notícias do Brasil e da região, Wikipédia) e o bom dia.
+- `agenda.mjs` — lembretes, despertador, timer e listas (`lembretes.json`); testado em
+  `tests/unit/alfred-agenda.test.ts`.
 - `pc.mjs` — comandos do PC (lista fixa, sem terminal); `memory.mjs` — a memória (`memoria.json`);
   `care.mjs` — os lembretes de descanso e de água. Cada um tem o seu `tests/unit/alfred-*.test.ts`.
 - `public/screen.css` + `public/screen.mjs` — a tela da página local: o céu, o relógio, o

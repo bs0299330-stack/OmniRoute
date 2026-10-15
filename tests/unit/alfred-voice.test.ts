@@ -122,3 +122,25 @@ test("the spoken answer stops before the list of sources (still shown on screen)
   const pt = stream(createChunker(CHUNKING.browser), "Está ensolarado.\n**Fontes:**\n- clima.com", 4);
   assert.deepEqual(pt, ["Está ensolarado."]);
 });
+
+test("numbers said the Brazilian way: money, clock times, percent and degrees", async () => {
+  const { numberWords, speakNumbers } = await import("../../contrib/alfred/public/voice.mjs");
+  assert.equal(numberWords(21), "vinte e um");
+  assert.equal(numberWords(100), "cem");
+  assert.equal(numberWords(115), "cento e quinze");
+  assert.equal(numberWords(1500), "mil e quinhentos");
+  assert.equal(numberWords(1234), "mil duzentos e trinta e quatro");
+  assert.equal(numberWords(1200000), "um milhão e duzentos mil");
+  assert.equal(numberWords(222, { feminine: true }), "duzentas e vinte e duas");
+  assert.equal(speakNumbers("Custa R$ 5,30 hoje."), "Custa cinco reais e trinta centavos hoje.");
+  assert.equal(speakNumbers("R$ 1,00"), "um real");
+  assert.equal(speakNumbers("R$ 0,50"), "cinquenta centavos");
+  assert.equal(speakNumbers("R$ 1.234,56"), "mil duzentos e trinta e quatro reais e cinquenta e seis centavos");
+  assert.equal(speakNumbers("R$ 3 milhões"), "três milhões de reais");
+  assert.equal(speakNumbers("US$ 5"), "cinco dólares");
+  assert.equal(speakNumbers("às 14h30, às 15h, às 8:05 e às 14:00"), "às catorze e trinta, às quinze horas, às oito e cinco e às catorze horas");
+  assert.equal(speakNumbers("às 1h"), "às uma hora");
+  assert.equal(speakNumbers("10% e 21 °C, 1°C, 32° hoje"), "10 por cento e 21 graus, 1 grau, 32 graus hoje");
+  assert.equal(speakNumbers("placar 2:1, item 2."), "placar 2:1, item 2.", "scores and plain numbers stay");
+  assert.equal(cleanForSpeech("**R$ 2,50** às 9h"), "dois reais e cinquenta centavos às nove horas");
+});

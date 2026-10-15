@@ -16,6 +16,7 @@ import {
 } from "./lib.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { openAgenda } from "./agenda.mjs";
 import { createMemoryControl, openMemory } from "./memory.mjs";
 import { createPcControl } from "./pc.mjs";
 import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
@@ -39,6 +40,17 @@ export function getMemory(config) {
   return memories.get(file);
 }
 
+// Reminders, alarms, timers and lists: lembretes.json next to Alfred, only on this PC.
+const agendas = new Map();
+/** The agenda for this config (null when ALFRED_LEMBRETES=off). */
+export function getAgenda(config) {
+  if (String(config.agenda).toLowerCase() === "off") return null;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const file = config.agenda ? resolve(here, config.agenda) : join(here, "lembretes.json");
+  if (!agendas.has(file)) agendas.set(file, openAgenda(file));
+  return agendas.get(file);
+}
+
 function withMemory(messages, block) {
   if (!block) return messages;
   const last = messages[messages.length - 1];
@@ -49,6 +61,7 @@ export const BRAIN_LABELS = {
   omniroute: "OmniRoute",
   local: "IA do PC",
   gemini: "Gemini",
+  groq: "Groq",
   openai: "OpenAI",
   claude: "Claude",
 };
@@ -156,6 +169,7 @@ export async function detectBrainInfo(config) {
   if (await answers(config.baseUrl, config.apiKey)) return { brain: "omniroute", found: true };
   if (await answers(config.localUrl)) return { brain: "local", found: true };
   if (config.geminiKey) return { brain: "gemini", found: true };
+  if (config.groqKey) return { brain: "groq", found: true };
   if (config.openaiKey) return { brain: "openai", found: true };
   if (await findClaude(config)) return { brain: "claude", found: true };
   return { brain: "omniroute", found: false };
@@ -168,6 +182,7 @@ export async function detectBrain(config) {
 const KEY_REFUSED = {
   omniroute: "O OmniRoute recusou a chave (OMNIROUTE_API_KEY).",
   gemini: "O Google recusou a chave do Gemini (GEMINI_API_KEY). Confira se copiou a chave inteira.",
+  groq: "O Groq recusou a chave (GROQ_API_KEY). Confira se copiou a chave inteira.",
   openai: "A OpenAI recusou a chave (OPENAI_API_KEY).",
 };
 
@@ -192,7 +207,7 @@ async function* streamChatCompletions(config, brain, messages, signal, found = n
         ? "Não consegui falar com o OmniRoute. Ele está rodando? Rode o diagnóstico para ver outras opções."
         : brain === "local"
           ? LOCAL_OFF
-          : `Não consegui falar com ${brain === "openai" ? "a OpenAI" : "o Gemini"}. Confira a internet.`
+          : `Não consegui falar com ${brain === "openai" ? "a OpenAI" : `o ${BRAIN_LABELS[brain]}`}. Confira a internet.`
     );
   }
   if (!res.ok || !res.body) {
@@ -204,8 +219,8 @@ async function* streamChatCompletions(config, brain, messages, signal, found = n
     if (brain === "local" && res.status === 404) throw new BrainError(localMissing(config.localModel));
     if (res.status === 429) {
       throw new BrainError(
-        brain === "gemini"
-          ? "O Gemini atingiu o limite grátis por agora. Espere um minuto (ou até amanhã, se foi o limite do dia)."
+        brain === "gemini" || brain === "groq"
+          ? `O ${BRAIN_LABELS[brain]} atingiu o limite grátis por agora. Espere um minuto (ou até amanhã, se foi o limite do dia).`
           : `${BRAIN_LABELS[brain]}: limite de uso ou sem crédito (HTTP 429).`
       );
     }
@@ -237,14 +252,14 @@ function claudeFailure(detail) {
   return "O Claude Code não respondeu. Rode o diagnóstico para ver o motivo.";
 }
 
-async function* streamClaude(config, messages, signal) {
+async function* streamClaude(config, messages, signal, said = "") {
   const found = await findClaude(config);
   if (!found) {
     throw new BrainError(
       "Não encontrei o Claude Code neste PC. Instale com: irm https://claude.ai/install.ps1 | iex (no PowerShell) e rode `claude` uma vez para entrar."
     );
   }
-  const cmd = buildClaudeCommand(config, process.platform, found.bin);
+  const cmd = buildClaudeCommand(config, process.platform, found.bin, said);
   const prompt = buildClaudePrompt(config, messages, { personaInArgs: cmd.personaInArgs });
   let child;
   try {
@@ -307,6 +322,21 @@ async function* streamClaude(config, messages, signal) {
 }
 
 /**
+ * The free brains that answer when the chosen one fails before saying anything (its limit was
+ * reached, the internet to it fell, Claude Code is logged out…): Gemini, then Groq, each only with
+ * its key. ALFRED_RESERVA=off turns this off.
+ */
+export function reserveBrains(config, brain) {
+  if (config.fallback === "off") return [];
+  return [
+    ["gemini", config.geminiKey],
+    ["groq", config.groqKey],
+  ]
+    .filter(([name, key]) => key && name !== brain)
+    .map(([name]) => name);
+}
+
+/**
  * Streams Alfred's reply: text deltas (strings) and, while Claude searches or reads the web,
  * `{ status: { tool, detail } }` objects. Throws BrainError with a user-safe message, including
  * when nothing at all happens for `idleMs` (so a stuck brain never leaves the user waiting; a long
@@ -335,7 +365,18 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
   // What the user said, before anything (the memory block) is added to it.
   const said = messages[messages.length - 1]?.content;
   try {
-    // PC commands are answered by Alfred himself, without the brain.
+    // Reminders, alarms, timers and lists are answered by Alfred himself, without the brain.
+    let agenda = null;
+    try {
+      agenda = getAgenda(config)?.handle(said);
+    } catch (err) {
+      log("[alfred] lembretes:", err?.message); // a bug there never costs the answer
+    }
+    if (agenda) {
+      yield agenda;
+      return;
+    }
+    // PC commands too.
     if (config.pc !== "off") {
       pcControl ??= createPcControl();
       const done = await pcControl.handle(said); // "como está o computador" takes half a second
@@ -356,27 +397,47 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
       messages = withMemory(messages, mem.memory.block());
     }
     let found = null;
-    // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"
-    // in free public services first, and hand the result to the brain.
-    const wanted = config.web !== "off" && usesLiteWeb(config, brain) ? detectLookup(said) : null;
-    if (wanted) {
-      yield { status: { tool: "search", detail: lookupLabel(wanted, config) } };
-      found = await lookup(wanted, { city: config.city });
-      if (ctl.signal.aborted) {
-        if (timedOut) throw timeoutError();
-        return;
-      }
-      arm();
-    }
-    const inner =
-      brain === "claude"
-        ? streamClaude(config, messages, ctl.signal)
-        : streamChatCompletions(config, brain, messages, ctl.signal, found);
+    let wanted = null;
+    let looked = false;
     let answer = "";
-    for await (const piece of inner) {
-      arm();
-      if (typeof piece === "string") answer += piece;
-      yield piece;
+    // The brain first; if it fails before saying anything, the free reserve brains in turn.
+    const order = [brain, ...reserveBrains(config, brain)];
+    let firstError = null; // when every brain fails, the chosen brain's reason is the useful one
+    for (const [i, current] of order.entries()) {
+      // "Internet leve": for brains that cannot search, look up rates, weather, news or "who is"
+      // in free public services first, and hand the result to the brain.
+      if (!looked && config.web !== "off" && usesLiteWeb(config, current)) {
+        looked = true;
+        wanted = detectLookup(said);
+        if (wanted) {
+          yield { status: { tool: "search", detail: lookupLabel(wanted, config) } };
+          found = await lookup(wanted, { city: config.city });
+          if (ctl.signal.aborted) {
+            if (timedOut) throw timeoutError();
+            return;
+          }
+          arm();
+        }
+      }
+      const inner =
+        current === "claude"
+          ? streamClaude(config, messages, ctl.signal, said)
+          : streamChatCompletions(config, current, messages, ctl.signal, found);
+      try {
+        for await (const piece of inner) {
+          arm();
+          if (typeof piece === "string") answer += piece;
+          yield piece;
+        }
+        break;
+      } catch (err) {
+        const next = order[i + 1];
+        if (answer || ctl.signal.aborted || !(err instanceof BrainError)) throw err;
+        firstError ??= err;
+        if (!next) throw firstError;
+        log(`[alfred] ${BRAIN_LABELS[current]} falhou (${err.message}); respondendo com o ${BRAIN_LABELS[next]}.`);
+        arm();
+      }
     }
     if (timedOut) throw timeoutError();
     // "Cuidar de você" (care.mjs): rest late at night, water on a hot day — rarely, after an answer.
@@ -478,6 +539,26 @@ export async function checkBrains(config, { deep = true } = {}) {
         : { ok: false, detail: `o Google recusou a chave (HTTP ${res.status})`, fix: "Confira a GEMINI_API_KEY no alfred.env." };
     } catch {
       result.gemini = { ok: false, detail: "sem resposta do Google", fix: "Confira a internet." };
+    }
+  }
+
+  if (!config.groqKey) {
+    result.groq = {
+      ok: false,
+      detail: "sem chave",
+      fix: "Opcional e grátis (cérebro reserva): crie uma chave em console.groq.com/keys e coloque em GROQ_API_KEY no alfred.env.",
+    };
+  } else {
+    try {
+      const res = await fetch(`${config.groqUrl}/models`, {
+        headers: { authorization: `Bearer ${config.groqKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      result.groq = res.ok
+        ? { ok: true, detail: `chave válida (modelo "${config.groqModel}")` }
+        : { ok: false, detail: `o Groq recusou a chave (HTTP ${res.status})`, fix: "Confira a GROQ_API_KEY no alfred.env." };
+    } catch {
+      result.groq = { ok: false, detail: "sem resposta do Groq", fix: "Confira a internet." };
     }
   }
 

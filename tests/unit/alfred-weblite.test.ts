@@ -205,3 +205,104 @@ test("briefing grammar: 'é 1 hora', '1 grau', 'segundo o g1'", async () => {
   assert.match(text, /agora faz 1 grau, com céu limpo/);
   assert.match(text, /segundo o g1: Manchete\./);
 });
+
+test("weather alerts (INMET): the user's town only, the most severe of each kind, said plainly", async () => {
+  const { alertsFor } = await import("../../contrib/alfred/weblite.mjs");
+  const now = new Date(Date.UTC(2026, 9, 15, 15, 0)); // 12h in Brasília
+  const alert = (o: Record<string, unknown>) => ({
+    id: 1,
+    descricao: "Tempestade",
+    severidade: "Perigo Potencial",
+    inicio: "2026-10-15 00:01",
+    fim: "2026-10-15 23:59",
+    municipios: "Vilhena - RO (1100304),Cabixi - RO (1100031),Colorado do Oeste - RO (1100064)",
+    riscos: ["Chuva entre 20 e 30 mm/h, ventos intensos (40-60 km/h)."],
+    ...o,
+  });
+  const feed = {
+    hoje: [
+      alert({}),
+      alert({ id: 2, severidade: "Perigo" }),
+      alert({ id: 3, descricao: "Baixa Umidade", municipios: "Cabixi - MT (5100000)" }),
+      alert({ id: 4, descricao: "Acumulado de Chuva", municipios: "Cabixiana - RO (1)" }),
+    ],
+    futuro: [alert({ id: 5, descricao: "Ventania", inicio: "2026-10-16 00:01", fim: "2026-10-16 23:59" })],
+  };
+  const found = alertsFor(feed, { name: "Cabixi", admin1: "Rondônia" }, now);
+  assert.deepEqual(
+    found.map((a: { id: string; level: number; now: boolean }) => [a.id, a.level, a.now]),
+    [
+      ["2", 2, true],
+      ["5", 1, false],
+    ]
+  );
+  assert.equal(found[0].short, "tempestade (perigo), até o fim do dia");
+  assert.match(found[0].spoken, /^Atenção, mestre: o INMET emitiu um alerta de perigo para tempestade em Cabixi, até o fim do dia\. Chuva entre/);
+  assert.equal(found[1].short, "ventania (perigo potencial), a partir de amanhã");
+  assert.deepEqual(alertsFor(feed, { name: "Cabixi", admin1: "Narnia" }, now), [], "unknown state: nothing");
+  assert.deepEqual(alertsFor({ hoje: [alert({ fim: "2026-10-15 10:00" })] }, { name: "Cabixi", admin1: "Rondônia" }, now), [], "already over");
+});
+
+test("rain in the next hours; 'vai chover?' brings the alerts in force; local news by state", async () => {
+  const { rainSoon, localNewsFeed } = await import("../../contrib/alfred/weblite.mjs");
+  const hourly = { time: ["2026-10-15T14:00", "2026-10-15T15:00", "2026-10-15T16:00"], precipitation_probability: [10, 20, 70] };
+  assert.deepEqual(rainSoon(hourly, new Date(2026, 9, 15, 14, 5)), { max: 70, text: "nas próximas horas, a maior chance de chuva é por volta das 16 horas (70%)" });
+  assert.deepEqual(rainSoon({ time: ["2026-10-15T14:00"], precipitation_probability: [5] }), { max: 5, text: "sem chuva à vista nas próximas horas" });
+  assert.equal(rainSoon({}), null);
+
+  assert.deepEqual(detectLookup("quais as notícias de Rondônia?"), { kind: "news", local: true });
+  assert.deepEqual(detectLookup("me fala as notícias da região"), { kind: "news", local: true });
+  assert.deepEqual(detectLookup("notícias de hoje"), { kind: "news" });
+  assert.equal(lookupLabel({ kind: "news", local: true }), "notícias da região");
+
+  const rss = (t: string) => `<rss><channel><item><title>${t} 1</title></item><item><title>${t} 2</title></item><item><title>${t} 3</title></item></channel></rss>`;
+  const f = fakeFetch({
+    "https://www.extraderondonia.com.br/": rss("Extra"),
+    "https://www.vilhenanoticias.com.br/": new Error("fora"),
+    "https://g1.globo.com/rss/g1/ro/": rss("g1 RO"),
+  });
+  const feed = await localNewsFeed("Rondônia", f.impl);
+  assert.equal(feed?.source, "Extra de Rondônia, g1 Rondônia");
+  assert.deepEqual(
+    feed?.items.map((i: { title: string }) => i.title),
+    ["Extra 1", "g1 RO 1", "Extra 2", "g1 RO 2"],
+    "two from each paper that answers, in turns"
+  );
+  assert.equal(await localNewsFeed("São Paulo", f.impl), null, "no local papers known there");
+
+  const weather = fakeFetch({
+    "https://geocoding-api.open-meteo.com/": { results: [{ name: "Cabixi", admin1: "Rondônia", latitude: -13, longitude: -60 }] },
+    "https://api.open-meteo.com/": {
+      current: { temperature_2m: 30, apparent_temperature: 33, weather_code: 2 },
+      daily: { time: ["d0"], weather_code: [95], temperature_2m_min: [24], temperature_2m_max: [35], precipitation_probability_max: [80] },
+      hourly: { time: ["2026-10-15T15:00", "2026-10-15T16:00"], precipitation_probability: [40, 90] },
+    },
+    "https://apiprevmet3.inmet.gov.br/": {
+      hoje: [{ id: 9, descricao: "Tempestade", severidade: "Perigo", inicio: "2000-01-01 00:01", fim: "2100-01-01 23:59", municipios: "Cabixi - RO (1100031)" }],
+    },
+  });
+  const today = await lookup({ kind: "weather", city: "Cabixi", day: 0 }, { fetchImpl: weather.impl });
+  assert.equal(today?.source, "Open-Meteo e INMET");
+  assert.match(today?.text ?? "", /; nas próximas horas, a maior chance de chuva é por volta das 16 horas \(90%\); alertas oficiais do INMET: tempestade \(perigo\), até o fim do dia 1$/);
+  assert.match(weather.asked.find((u) => u.startsWith("https://api.open-meteo.com/")) ?? "", /hourly=precipitation_probability&forecast_hours=12/);
+});
+
+test("bom dia: the INMET alert and a headline from the region", async () => {
+  const { buildBriefing } = await import("../../contrib/alfred/weblite.mjs");
+  const text = buildBriefing(new Date(2026, 9, 15, 7, 0), {
+    weather: {
+      source: "Open-Meteo",
+      text: "",
+      data: {
+        place: "Cabixi",
+        state: "Rondônia",
+        current: { temp: 24, words: "nublado" },
+        day: { words: "trovoadas", min: 23, max: 31, rain: 80 },
+        alerts: [{ severity: "perigo", what: "tempestade", now: true }],
+      },
+    },
+    local: { source: "Extra de Rondônia", items: [{ title: "Ponte é liberada em Cabixi.", source: "Extra de Rondônia" }] },
+  });
+  assert.match(text, /com 80 por cento de chance de chuva\. O INMET tem um alerta de perigo para tempestade\./);
+  assert.match(text, /E aqui na região, segundo o Extra de Rondônia: Ponte é liberada em Cabixi\./);
+});

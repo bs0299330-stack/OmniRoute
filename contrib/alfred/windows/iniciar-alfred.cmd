@@ -41,8 +41,9 @@ set "PORT=20140"
 if exist "alfred.env" for /f "usebackq tokens=1,* delims== " %%a in ("alfred.env") do if /i "%%a"=="ALFRED_PORT" set "PORT=%%~b"
 rem Abre no Edge (vem com o Windows): ele reconhece voz em portugues e tem vozes naturais.
 rem Janela propria (sem abas nem barra de endereco, so o globo), com perfil proprio do Alfred
-rem para o som e o microfone ja ligarem sem precisar de clique.
-start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start "" msedge --app=http://localhost:%PORT%/ --user-data-dir="%LOCALAPPDATA%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized"
+rem para o som e o microfone ja ligarem sem precisar de clique, e que nao para de ouvir quando
+rem a janela fica atras de outra ou a tela bloqueia.
+start "" /b cmd /c "ping -n 4 127.0.0.1 >nul && start "" msedge --app=http://localhost:%PORT%/ --user-data-dir="%LOCALAPPDATA%\Alfred\Edge" --autoplay-policy=no-user-gesture-required --no-first-run --start-maximized --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding"
 "%NODE%" server.mjs %*
 echo.
 pause

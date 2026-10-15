@@ -2,3 +2,5 @@ alfred.env
 claude/dist/
 memoria.json
 memoria.json.tmp
+lembretes.json
+lembretes.json.tmp

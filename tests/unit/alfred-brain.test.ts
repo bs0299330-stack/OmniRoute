@@ -174,7 +174,7 @@ test("Windows installer downloads every Alfred file", async () => {
       return statSync(path).isDirectory() ? walk(path) : [relative(root, path).replaceAll("\\", "/")];
     });
   const expected = walk(root)
-    .filter((f) => !f.startsWith("claude/dist/") && !f.startsWith(".") && f !== "alfred.env" && !f.startsWith("memoria.json"))
+    .filter((f) => !f.startsWith("claude/dist/") && !f.startsWith(".") && f !== "alfred.env" && !f.startsWith("memoria.json") && !f.startsWith("lembretes.json"))
     .sort();
   assert.deepEqual([...listed].sort(), expected);
 });
@@ -353,7 +353,7 @@ test("local brain: auto picks a running Ollama; clear messages when it is off or
   await new Promise<void>((resolve) => ollama.listen(0, "127.0.0.1", () => resolve()));
   const { port } = ollama.address() as { port: number };
   process.env.ALFRED_QUIET = "1";
-  const env = { OMNIROUTE_URL: "http://127.0.0.1:9/v1", ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1` };
+  const env = { OMNIROUTE_URL: "http://127.0.0.1:9/v1", ALFRED_LOCAL_URL: `http://127.0.0.1:${port}/v1`, ALFRED_RESERVA: "off" };
   const config = loadConfig({ ...env, GEMINI_API_KEY: "g" });
   const collect = async (c = config) => {
     let text = "";
@@ -429,6 +429,7 @@ test("local brain + internet leve: says it is searching, looks up, then answers 
         })
       );
     }
+    if (u.startsWith("https://apiprevmet3.inmet.gov.br/")) return new Response("fora do ar", { status: 503 });
     return realFetch(url, init);
   }) as typeof fetch;
   process.env.ALFRED_QUIET = "1";
@@ -493,5 +494,118 @@ test("what Alfred remembers never triggers a web lookup (only the user's own wor
     globalThis.fetch = realFetch;
     ollama.closeAllConnections();
     ollama.close();
+  }
+});
+
+test("Claude Code: a light model for everyday talk, a stronger one when asked for depth; little effort", async () => {
+  const { claudeModelFor } = await import("../../contrib/alfred/lib.mjs");
+  const config = loadConfig({});
+  assert.equal(config.claudeEffort, "low");
+  assert.equal(claudeModelFor(config, "Que horas são?"), "haiku");
+  assert.equal(claudeModelFor(config, "Qual é a capital da Austrália?"), "haiku");
+  assert.equal(claudeModelFor(config, "Me explica em detalhes como funciona a energia solar"), "sonnet");
+  assert.equal(claudeModelFor(config, "Escreve uma mensagem de aniversário para a minha mãe"), "sonnet");
+  assert.equal(claudeModelFor(config, "x".repeat(300)), "sonnet", "long questions");
+  assert.equal(claudeModelFor(loadConfig({ ALFRED_CLAUDE_MODEL: "opus" }), "oi"), "opus", "a chosen model always wins");
+  assert.equal(loadConfig({ ALFRED_CLAUDE_MODEL: "auto" }).claudeModel, "");
+  assert.equal(loadConfig({ ALFRED_CLAUDE_EFFORT: "HIGH" }).claudeEffort, "high");
+  assert.equal(loadConfig({ ALFRED_CLAUDE_EFFORT: "turbo" }).claudeEffort, "low");
+
+  const args = buildClaudeCommand(config, "win32", "claude", "Que horas são?").args;
+  const after = (flag: string) => args[args.indexOf(flag) + 1];
+  assert.equal(after("--model"), "haiku");
+  assert.equal(after("--effort"), "low");
+  assert.equal(after("--fallback-model"), "sonnet");
+  assert.ok(args.includes("--strict-mcp-config") && args.includes("--disable-slash-commands"), "no MCP servers or skills to load");
+  assert.ok(!args.join(" ").includes("Que horas"), "the question never reaches the command line");
+  const fixed = buildClaudeCommand(loadConfig({ ALFRED_CLAUDE_MODEL: "sonnet" }), "linux", "claude", "oi").args;
+  assert.ok(!fixed.includes("--fallback-model"), "a chosen model has no automatic fallback");
+});
+
+test("Groq: an OpenAI-compatible reserve brain with the internet leve", () => {
+  const config = loadConfig({ GROQ_API_KEY: "gsk_x" });
+  const call = buildChatCall(config, "groq", [{ role: "user", content: "Oi" }], new Date(2026, 9, 15, 9, 30));
+  assert.equal(call.url, "https://api.groq.com/openai/v1/chat/completions");
+  assert.equal(call.apiKey, "gsk_x");
+  assert.equal(call.body.model, "openai/gpt-oss-120b");
+  assert.equal(call.body.reasoning_effort, "low");
+  assert.match(call.body.messages.at(-1).content, /\[Contexto: agora são 09:30\.\]$/);
+  assert.equal(buildChatCall(loadConfig({ GROQ_API_KEY: "k", ALFRED_GROQ_MODEL: "llama-3.3-70b-versatile" }), "groq", history).body.reasoning_effort, undefined);
+});
+
+test("reserve brains: when the brain fails before saying anything, Gemini then Groq answer", async () => {
+  const { createServer } = await import("node:http");
+  const { streamReply, reserveBrains, BrainError } = await import("../../contrib/alfred/brain.mjs");
+  const hits: string[] = [];
+  const brainServer = (name: string, status: number) =>
+    createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        hits.push(name);
+        if (status !== 200) {
+          res.writeHead(status, { "content-type": "application/json" });
+          return res.end('{"error":{"message":"limite"}}');
+        }
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(`data: {"choices":[{"delta":{"content":"Resposta do ${name}."}}]}\n\ndata: [DONE]\n\n`);
+      });
+    });
+  const servers = { local: brainServer("local", 404), gemini: brainServer("gemini", 429), groq: brainServer("groq", 200) };
+  const port: Record<string, number> = {};
+  for (const [name, s] of Object.entries(servers)) {
+    await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", () => resolve()));
+    port[name] = (s.address() as { port: number }).port;
+  }
+  process.env.ALFRED_QUIET = "1";
+  const env = {
+    ALFRED_LOCAL_URL: `http://127.0.0.1:${port.local}/v1`,
+    ALFRED_GEMINI_URL: `http://127.0.0.1:${port.gemini}/v1`,
+    ALFRED_GROQ_URL: `http://127.0.0.1:${port.groq}/v1`,
+    GEMINI_API_KEY: "g",
+    GROQ_API_KEY: "q",
+    ALFRED_WEB: "off",
+    ALFRED_MEMORY: "off",
+    ALFRED_LEMBRETES: "off",
+    ALFRED_PC: "off",
+  };
+  const collect = async (config: ReturnType<typeof loadConfig>) => {
+    let text = "";
+    for await (const piece of streamReply(config, "local", [{ role: "user", content: "oi" }])) if (typeof piece === "string") text += piece;
+    return text;
+  };
+  try {
+    const config = loadConfig(env);
+    assert.deepEqual(reserveBrains(config, "local"), ["gemini", "groq"]);
+    assert.deepEqual(reserveBrains(config, "gemini"), ["groq"]);
+    assert.deepEqual(reserveBrains(loadConfig({ ...env, ALFRED_RESERVA: "off" }), "local"), []);
+    assert.equal(await collect(config), "Resposta do groq.");
+    assert.deepEqual(hits, ["local", "gemini", "groq"]);
+    // every brain failing: the chosen brain's own reason is told
+    await assert.rejects(
+      collect(loadConfig({ ...env, GROQ_API_KEY: "" })),
+      (err: unknown) => err instanceof BrainError && /ollama pull/.test((err as Error).message)
+    );
+  } finally {
+    for (const s of Object.values(servers)) {
+      s.closeAllConnections();
+      s.close();
+    }
+  }
+});
+
+test("reminders and lists are answered by Alfred himself, before the brain", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { streamReply } = await import("../../contrib/alfred/brain.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "alfred-brain-agenda-"));
+  try {
+    // no brain is running at all: the answer still comes
+    const config = loadConfig({ ALFRED_LEMBRETES: join(dir, "l.json"), ALFRED_MEMORY: "off", ALFRED_LOCAL_URL: "http://127.0.0.1:9/v1" });
+    const pieces: unknown[] = [];
+    for await (const p of streamReply(config, "local", [{ role: "user", content: "coloca pão na lista de compras" }])) pieces.push(p);
+    assert.deepEqual(pieces, ["Anotado, mestre: pão na lista de compras."]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
