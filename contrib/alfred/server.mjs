@@ -24,6 +24,7 @@ import {
   buildTunnelArgs,
   extractTunnelUrl,
   isAuthorized,
+  isLocalRequest,
   isOwnRequest,
   loadConfig,
   statusLabel,
@@ -96,6 +97,35 @@ function pushAviso(kind, text) {
   avisos.push({ id: lastAvisoId, kind, text });
   while (avisos.length > 30 || (avisos.length && avisos[0].id < Date.now() - AVISO_KEEP_MS)) avisos.shift();
   console.log(`   🔔 ${text}`);
+  notifyPhone(kind, text);
+}
+
+// The same aviso as a phone notification (the free ntfy app), even with Alfred closed there.
+// ALFRED_NTFY is a long random topic name: whoever knows it receives the avisos, so it is kept
+// only in alfred.env and shown only to Alfred's own pages.
+let ntfyWarned = false;
+function notifyPhone(kind, text) {
+  if (!config.ntfyTopic) return;
+  const link = config.hosts[0] ? `https://${config.hosts[0]}/` : "";
+  fetch(`${config.ntfyUrl}/${config.ntfyTopic}`, {
+    method: "POST",
+    headers: {
+      title: "Alfred",
+      priority: kind === "alarm" || kind === "alerta" ? "high" : "default",
+      tags: { alarm: "alarm_clock", timer: "hourglass", alerta: "warning" }[kind] ?? "bell",
+      ...(link ? { click: link } : {}),
+    },
+    body: text,
+    signal: AbortSignal.timeout(10_000),
+  })
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    })
+    .catch((err) => {
+      if (ntfyWarned) return;
+      ntfyWarned = true;
+      console.warn(`   ⚠️  Não consegui mandar o aviso para o celular (ntfy): ${err?.message}`);
+    });
 }
 // What came due, every 5 seconds (and, after the PC wakes up, what came due while it slept).
 setInterval(() => {
@@ -137,7 +167,11 @@ const STATIC_FILES = {
   "/hud.css": ["hud.css", "text/css; charset=utf-8"],
   "/screen.css": ["screen.css", "text/css; charset=utf-8"],
   "/screen.mjs": ["screen.mjs", "text/javascript; charset=utf-8"],
+  // the phone app: installed from the page (Chrome → "Adicionar à tela inicial")
+  "/manifest.webmanifest": ["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
+  "/sw.js": ["sw.js", "text/javascript; charset=utf-8"],
 };
+const ICON_FILE = /^\/icons\/(icon-(?:192|512|maskable-512))\.png$/;
 
 async function serveStatic(res, [file, type], cache = "no-store") {
   const body = await readFile(join(HERE, "public", file));
@@ -239,7 +273,7 @@ function ttsFailureHint(status, detail) {
   return "";
 }
 
-async function handleChat(req, res) {
+async function handleChat(req, res, { remote = false } = {}) {
   let body;
   try {
     body = await readJsonBody(req);
@@ -260,7 +294,7 @@ async function handleChat(req, res) {
         "O Alfred está sem cérebro. Grátis e sem chave: rode o instalador de novo e escolha a opção 1 (IA no seu PC). Ou crie uma chave do Gemini em aistudio.google.com/apikey e coloque em GEMINI_API_KEY no alfred.env. Ou instale o Claude Code (irm https://claude.ai/install.ps1 | iex e depois rode claude para entrar), ou coloque OPENAI_API_KEY no alfred.env. O diagnostico.cmd testa tudo.",
     });
   }
-  const stream = streamReply(config, current, check.messages, { signal: controller.signal, care });
+  const stream = streamReply(config, current, check.messages, { signal: controller.signal, care, remote });
   let first;
   try {
     first = await stream.next();
@@ -281,7 +315,8 @@ async function handleChat(req, res) {
   try {
     for (let step = first; !step.done; step = await stream.next()) {
       const piece = step.value;
-      const event = typeof piece === "string" ? { text: piece } : { status: statusLabel(piece.status) };
+      const event =
+        typeof piece === "string" ? { text: piece } : piece.action ? { action: piece.action } : { status: statusLabel(piece.status) };
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
     res.write("data: [DONE]\n\n");
@@ -301,18 +336,23 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     // Only Alfred's own page may use Alfred: no other site open in the browser (sent here by
     // the browser or through a DNS trick) can talk to him, change his memory or turn off the PC.
-    if (!isOwnRequest(req.headers, { tunnel: wantTunnel })) return sendJson(res, 403, { error: "Origem não permitida." });
+    if (!isOwnRequest(req.headers, { tunnel: wantTunnel, hosts: config.hosts })) return sendJson(res, 403, { error: "Origem não permitida." });
+    // The page on this PC needs no token; the phone (and any other device) does, when one is set.
+    const local = isLocalRequest(req.headers, req.socket.remoteAddress);
+    const authorized = local || isAuthorized(config, req.headers.authorization);
     if (req.method === "POST" && !/^application\/json\b/i.test(req.headers["content-type"] ?? "")) {
       return sendJson(res, 415, { error: "Envie JSON." });
     }
     if (req.method === "GET" && STATIC_FILES[url.pathname]) {
       return await serveStatic(res, STATIC_FILES[url.pathname]);
     }
+    const icon = req.method === "GET" ? ICON_FILE.exec(url.pathname) : null;
+    if (icon) return await serveStatic(res, [`icons/${icon[1]}.png`, "image/png"], "public, max-age=86400");
     const phrase = req.method === "GET" ? PHRASE_FILE.exec(url.pathname) : null;
     if (phrase) return await servePhrase(res, phrase[1]);
     if (req.method === "GET" && url.pathname === "/api/health") {
       // Without the token (tunnel link), only "it is up and asks for a token".
-      if (!isAuthorized(config, req.headers.authorization)) return sendJson(res, 200, { ok: true, auth: true });
+      if (!authorized) return sendJson(res, 200, { ok: true, auth: true });
       await getBrain();
       return sendJson(res, 200, {
         ok: true,
@@ -320,15 +360,17 @@ const server = createServer(async (req, res) => {
         brainFound,
         model: { claude: "Claude Code", openai: config.openaiModel, gemini: config.geminiModel, groq: config.groqModel, local: config.localModel }[brain] ?? config.model,
         auth: !!config.accessToken,
+        // the phone notifications, so the page can offer "Receber avisos no celular"
+        ntfy: config.ntfyTopic ? { topic: config.ntfyTopic, server: config.ntfyUrl } : null,
         tts: config.ttsProvider
           ? { provider: config.ttsProvider, voice: config.ttsVoice, voices: ttsVoices(config), label: ttsLabel(config) }
           : null,
       });
     }
-    if (url.pathname.startsWith("/api/") && !isAuthorized(config, req.headers.authorization)) {
+    if (url.pathname.startsWith("/api/") && !authorized) {
       return sendJson(res, 401, { error: "Token de acesso inválido." });
     }
-    if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res);
+    if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res, { remote: !local });
     if (req.method === "POST" && url.pathname === "/api/tts") return await handleTts(req, res);
     if (req.method === "GET" && url.pathname === "/api/briefing") {
       // The "bom dia" spoken when Alfred starts: day, time, weather in ALFRED_CITY and headlines.

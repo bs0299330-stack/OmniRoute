@@ -157,6 +157,59 @@ body.voice-only {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ---------- under the globe: the phone's hint and the buttons (call, WhatsApp, open) ---------- */
+.tap-hint {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 240 * var(--u));
+  transform: translateX(-50%);
+  font: 400 calc(12 * var(--u)) / 1 var(--font-data);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.actions {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 268 * var(--u));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(calc(420 * var(--u)), calc(100vw - 32px));
+  pointer-events: auto;
+}
+.action-btn,
+.button-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 12px 20px;
+  border: 1px solid #f5c400;
+  border-radius: 999px;
+  background: rgba(245, 196, 0, 0.1);
+  color: #fff;
+  font: 500 17px / 1.2 var(--font-body);
+  text-align: center;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.action-btn[data-kind="whatsapp"] {
+  border-color: #25d366;
+  background: rgba(37, 211, 102, 0.12);
+}
+.action-btn:active,
+.button-link:active {
+  transform: scale(0.98);
+}
+.button-link {
+  min-height: 40px;
+  font-size: 15px;
+}
+
 /* ---------- news ---------- */
 .news {
   position: absolute;
@@ -270,7 +323,7 @@ body.voice-only {
       "stage stage"
       "news news";
     align-items: start;
-    padding: 20px 20px calc(28px + env(safe-area-inset-bottom, 0px));
+    padding: 20px 20px calc(84px + env(safe-area-inset-bottom, 0px)); /* room for the menu button */
     gap: 8px 12px;
   }
   .voice-state,
@@ -305,13 +358,34 @@ body.voice-only {
   #orb {
     width: min(84vw, 50vh, 420px);
   }
+  .tap-hint,
+  .actions {
+    position: static;
+    transform: none;
+    margin: 4px auto 0;
+  }
+  .actions {
+    width: min(100%, 420px);
+  }
+  /* no M key on a phone: the menu button stays in sight, in the corner */
+  .menu-key {
+    top: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    opacity: 0.75;
+    pointer-events: auto;
+    font-size: 22px;
+  }
   .news {
     grid-area: news;
     width: auto;
   }
   .notice {
     left: 16px;
-    right: 16px;
+    right: 76px; /* the menu button */
     bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     max-width: none;
   }

@@ -8,7 +8,7 @@ ele faz, e três jeitos de usar:
 | ---------------------- | -------------------------------------------- | -------------------- | --------- |
 | Site no seu PC         | `node contrib/alfred/server.mjs`             | sim (Chrome/Edge)    | sim       |
 | Terminal               | `node contrib/alfred/cli.mjs`                | sim (com `sox`)      | sim       |
-| Celular, de qualquer lugar | `node contrib/alfred/server.mjs --tunel` | sim (link https)     | sim       |
+| Celular (app), de qualquer lugar | `windows\celular.ps1` (Tailscale), uma vez | sim (toque no globo) | sim |
 | Dentro do app do Claude | Artifact publicado de `claude/index.html`   | ditado do teclado    | não       |
 
 O **cérebro** é escolhido sozinho (`ALFRED_BRAIN=auto`): o seu **OmniRoute** se ele responder
@@ -489,28 +489,67 @@ Para uma frase tocar gravada (por exemplo, com uma voz feita no ElevenLabs), sal
 `file` da frase em `PHRASES` (`public/voice.mjs`). Use só áudios que você tenha o direito de usar.
 Em **Frases gravadas** (menu, tecla M) você desliga as gravações e volta tudo para a voz normal.
 
-## Falar com o Alfred pelo celular (com microfone)
+## Alfred no celular (Android), como um aplicativo
 
-O navegador do celular só libera o microfone em **https**. O Alfred cria esse link sozinho:
+O celular fala com o Alfred que está no notebook pelo **Tailscale**. É grátis e funciona no Wi-Fi
+de casa e no 4G. O endereço https é fixo, e só os seus aparelhos entram nele. O notebook precisa
+estar ligado com o Alfred aberto.
 
-1. Instale o **cloudflared** no PC (uma vez): `winget install Cloudflare.cloudflared` no Windows,
-   ou `brew install cloudflared` no Mac.
-2. Inicie o Alfred com `--tunel`:
+**Uma vez, no notebook** (depois do instalador), cole no PowerShell:
 
-   ```bash
-   node contrib/alfred/server.mjs --tunel
-   ```
+```
+irm https://raw.githubusercontent.com/bs0299330-stack/OmniRoute/claude/alfred-virtual-assistant-awv48m/contrib/alfred/windows/celular.ps1 | iex
+```
 
-3. Ele mostra um link `https://….trycloudflare.com/#token=…`. Abra esse link no celular (Chrome
-   no Android). A senha vai junto no link, a página guarda e tira da barra de endereço. Toque no
-   globo (libera o som e o microfone) e fale, ou diga "Alfred, …". Para abrir o menu no celular,
-   segure o dedo no globo.
+ou clique duas vezes em `windows\configurar-celular.cmd`, na pasta do Alfred. Ele:
 
-Enquanto o link estiver ativo, as rotas `/api/*` exigem a senha. Se `ALFRED_TOKEN` não estiver
-definido, ele gera uma senha nova a cada execução. **Não compartilhe o link**, porque quem tiver o
-link fala com o seu Alfred, usando o seu cérebro e a sua voz de IA. O link fecha quando você
-encerra o Alfred. Sem cloudflared, dá para usar outro túnel https (Tailscale Serve, ngrok)
-apontando para a porta `20140`, com `ALFRED_TOKEN` definido.
+1. instala o Tailscale, se faltar, e espera você entrar na conta (pode ser a conta Google);
+2. liga o endereço `https://<seu-notebook>.<sua-rede>.ts.net` do Alfred (`tailscale serve`). Na
+   primeira vez, o Tailscale abre uma página para liberar o https: é só clicar em **Enable**;
+3. grava no `alfred.env` a **senha do celular** (`ALFRED_TOKEN`), o endereço (`ALFRED_HOSTS`) e o
+   canal dos avisos (`ALFRED_NTFY`), sem mexer no resto;
+4. reabre o Alfred e mostra o link para o celular, já copiado. Cole numa conversa sua no WhatsApp
+   ou mande por e-mail para você mesmo.
+
+**No celular:**
+
+1. Instale o app **Tailscale** (Play Store), entre na **mesma conta** e deixe ele ligado.
+2. Abra o link no **Chrome**. A senha vai junto no link; se ele pedir, digite a senha que apareceu
+   no notebook.
+3. Nos três pontinhos do Chrome, toque em **Adicionar à tela inicial** (ou **Instalar app**). O
+   Alfred vira um ícone e abre em tela cheia, como um aplicativo.
+4. **Avisos com o Alfred fechado** (lembretes, despertador, timer, alertas do INMET): instale o app
+   grátis **ntfy** (Play Store). No Alfred do celular, abra o menu (botão no canto de baixo) e toque
+   em **Receber avisos no celular**.
+
+**Como ele funciona no celular:**
+
+- **Toque no globo para falar.** No celular, "Ouvir sempre" começa desligado: o Chrome do Android
+  apita toda vez que volta a ouvir, e com a tela apagada ele não ouve. Para chamar só com a voz,
+  ligue no menu **Ouvir sempre** e **Manter a tela acesa**, de preferência com o celular no
+  carregador.
+- **Ligar e WhatsApp:** "O número da minha mãe é 69 99912-3456" (ele guarda), "liga pra minha mãe",
+  "manda no WhatsApp pro João que eu chego às 8", "abre o WhatsApp da minha mãe", "liga pro SAMU".
+  O Alfred **nunca liga nem envia sozinho**: aparece um botão ("Ligar para sua mãe", "Enviar no
+  WhatsApp"), e você toca. Os números ficam só em `contatos.json`, no notebook, e nunca vão para a
+  IA. Também: "qual é o número do João?", "quais são meus contatos?", "esquece o número do João".
+  Sem o DDD, ele pergunta (ou use `ALFRED_DDD=69` no `alfred.env`).
+- **Pedidos pelo celular abrem no celular:** "abre o YouTube", "como chegar em Vilhena", "pesquisa
+  receita de bolo" mostram o botão para abrir no próprio celular. O que só faz sentido no notebook
+  (volume, programas, print, desligar o PC) o Alfred não faz pelo celular. "Como está o computador?"
+  diz como está o notebook.
+- O notebook continua abrindo o Alfred sem senha. Só quem chega de fora (o celular, outro PC)
+  precisa da senha.
+
+**Cuidado com o link e com o canal dos avisos:** quem tiver o link com a senha fala com o seu
+Alfred, e quem souber o nome do canal do ntfy recebe os seus avisos. Os dois ficam só no
+`alfred.env` deste notebook. Para trocar, apague `ALFRED_TOKEN` e `ALFRED_NTFY` do `alfred.env` e
+rode o `celular.ps1` de novo.
+
+**Sem Tailscale** (link provisório): instale o `cloudflared` (`winget install Cloudflare.cloudflared`)
+e abra o Alfred por `windows\alfred-celular.cmd`, ou rode `node contrib/alfred/server.mjs --tunel`.
+Ele mostra um link `https://….trycloudflare.com/#token=…`, que muda a cada vez que o Alfred liga.
+Por isso esse link não serve para virar ícone.
 
 **Na página do Claude** o app não deixa a página usar o microfone. Lá, ligue o **Modo ditado**
 (já vem ligado no celular): toque no campo, use o 🎤 do teclado e fale. Quando você para de falar,
@@ -570,6 +609,9 @@ Navegador (voz ⇄ texto)  ──POST /api/chat──▶  server.mjs  ──stre
 - `cli.mjs` — o Alfred do terminal (voz, microfone com sox, modo conversa).
 - `weblite.mjs` — "internet leve" (cotações, clima e chuva das próximas horas, alertas do INMET,
   notícias do Brasil e da região, Wikipédia) e o bom dia.
+- `contacts.mjs` — números, ligações e WhatsApp (`contatos.json`), sempre como botão; testado em
+  `tests/unit/alfred-phone.test.ts`. `public/manifest.webmanifest`, `public/sw.js` e `public/icons/`
+  fazem do site um aplicativo no celular; `windows/celular.ps1` liga o Tailscale.
 - `agenda.mjs` — lembretes, despertador, timer e listas (`lembretes.json`); testado em
   `tests/unit/alfred-agenda.test.ts`.
 - `pc.mjs` — comandos do PC (lista fixa, sem terminal); `memory.mjs` — a memória (`memoria.json`);

@@ -172,8 +172,21 @@ export function loadConfig(env = process.env) {
     pc: String(env.ALFRED_PC || "").toLowerCase() === "off" ? "off" : "on",
     // Memory file (memoria.json next to Alfred by default); "off" turns the memory off.
     memory: env.ALFRED_MEMORY || "",
+    // Other names this Alfred answers by (the server's Tailscale name, for example).
+    hosts: String(env.ALFRED_HOSTS || "")
+      .split(",")
+      .map((h) => h.trim().toLowerCase())
+      .filter(Boolean),
+    // Phone notifications through ntfy (https://ntfy.sh): the topic is a long random name that
+    // works as a password; empty = off.
+    ntfyTopic: /^[\w-]{12,64}$/.test(env.ALFRED_NTFY || "") ? env.ALFRED_NTFY : "",
+    ntfyUrl: (env.ALFRED_NTFY_URL || "https://ntfy.sh").replace(/\/+$/, ""),
+    // The area code for phone numbers said without one ("99912-3456").
+    ddd: /^\d{2}$/.test(env.ALFRED_DDD || "") ? env.ALFRED_DDD : "",
     // Reminders, alarms, timers and lists (lembretes.json next to Alfred); "off" turns them off.
     agenda: env.ALFRED_LEMBRETES || "",
+    // Phone numbers for calls and WhatsApp (contatos.json next to Alfred); "off" turns them off.
+    contacts: env.ALFRED_CONTATOS || "",
     ...resolveTts(env),
   };
 }
@@ -687,12 +700,30 @@ export function isAuthorized(config, headerValue) {
 }
 
 /**
- * True when a request comes from Alfred's own page. The Host must be this PC (localhost, an IP
- * address, a plain PC name, `.local`) or, with the tunnel, the trycloudflare link; when the
- * browser says which site sent the request (Origin), it must be that same address. This stops
- * other web pages, and DNS rebinding, from using Alfred.
+ * True for the page opened on this PC itself (http://localhost, http://127.0.0.1): it needs no
+ * token. Anything else (the phone through Tailscale or the tunnel, another PC on the network)
+ * arrives with another address in Host, even when a local proxy delivers it.
  */
-export function isOwnRequest(headers = {}, { tunnel = false } = {}) {
+export function isLocalRequest(headers = {}, remoteAddress = "") {
+  let name = "";
+  try {
+    name = new URL(`http://${String(headers.host ?? "").toLowerCase()}`).hostname;
+  } catch {
+    return false;
+  }
+  const loopHost = name === "localhost" || name === "127.0.0.1" || name === "[::1]";
+  const loopPeer = /^(?:127\.|::1$|::ffff:127\.)/.test(String(remoteAddress ?? ""));
+  return loopHost && loopPeer;
+}
+
+/**
+ * True when a request comes from Alfred's own page. The Host must be this PC (localhost, an IP
+ * address, a plain PC name, `.local`), its Tailscale name (`….ts.net`, only the user's own devices
+ * reach it), a name in ALFRED_HOSTS or, with the tunnel, the trycloudflare link; when the browser
+ * says which site sent the request (Origin), it must be that same address. This stops other web
+ * pages, and DNS rebinding, from using Alfred.
+ */
+export function isOwnRequest(headers = {}, { tunnel = false, hosts = [] } = {}) {
   const host = String(headers.host ?? "").toLowerCase();
   let name;
   try {
@@ -702,7 +733,14 @@ export function isOwnRequest(headers = {}, { tunnel = false } = {}) {
   }
   if (!host || !name) return false;
   const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.startsWith("[");
-  const ok = ip || name === "localhost" || !name.includes(".") || name.endsWith(".local") || (tunnel && name.endsWith(".trycloudflare.com"));
+  const ok =
+    ip ||
+    name === "localhost" ||
+    !name.includes(".") ||
+    name.endsWith(".local") ||
+    name.endsWith(".ts.net") ||
+    hosts.includes(name) ||
+    (tunnel && name.endsWith(".trycloudflare.com"));
   if (!ok) return false;
   const origin = headers.origin;
   if (origin === undefined) return true;

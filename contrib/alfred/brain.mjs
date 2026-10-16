@@ -17,6 +17,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openAgenda } from "./agenda.mjs";
+import { openContacts } from "./contacts.mjs";
 import { createMemoryControl, openMemory } from "./memory.mjs";
 import { createPcControl } from "./pc.mjs";
 import { detectLookup, lookup, lookupLabel } from "./weblite.mjs";
@@ -49,6 +50,24 @@ export function getAgenda(config) {
   const file = config.agenda ? resolve(here, config.agenda) : join(here, "lembretes.json");
   if (!agendas.has(file)) agendas.set(file, openAgenda(file));
   return agendas.get(file);
+}
+
+// Phone numbers (calls and WhatsApp): contatos.json next to Alfred, only on this PC.
+const contactBooks = new Map();
+/** The contacts for this config (null when ALFRED_CONTATOS=off). */
+export function getContacts(config) {
+  if (String(config.contacts).toLowerCase() === "off") return null;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const file = config.contacts ? resolve(here, config.contacts) : join(here, "contatos.json");
+  if (!contactBooks.has(file)) contactBooks.set(file, openContacts(file, { ddd: config.ddd }));
+  return contactBooks.get(file);
+}
+
+/** A reply that Alfred gives by himself: its text, then the button for the page, if any. */
+function* ownReply(reply) {
+  if (typeof reply === "string") return yield reply;
+  yield reply.text;
+  if (reply.action) yield { action: reply.action };
 }
 
 function withMemory(messages, block) {
@@ -337,12 +356,13 @@ export function reserveBrains(config, brain) {
 }
 
 /**
- * Streams Alfred's reply: text deltas (strings) and, while Claude searches or reads the web,
- * `{ status: { tool, detail } }` objects. Throws BrainError with a user-safe message, including
+ * Streams Alfred's reply: text deltas (strings); while Claude searches or reads the web,
+ * `{ status: { tool, detail } }` objects; and, for calls, WhatsApp and (from the phone, `remote`)
+ * sites and maps, one `{ action: { kind, label, url } }` for the page to show as a button. Throws BrainError with a user-safe message, including
  * when nothing at all happens for `idleMs` (so a stuck brain never leaves the user waiting; a long
  * web search that keeps reporting progress is not cut off).
  */
-export async function* streamReply(config, brain, messages, { signal, idleMs = FIRST_TOKEN_TIMEOUT_MS, firstTokenMs, care } = {}) {
+export async function* streamReply(config, brain, messages, { signal, idleMs = FIRST_TOKEN_TIMEOUT_MS, firstTokenMs, care, remote = false } = {}) {
   idleMs = firstTokenMs ?? idleMs;
   const ctl = new AbortController();
   const forward = () => ctl.abort();
@@ -366,22 +386,23 @@ export async function* streamReply(config, brain, messages, { signal, idleMs = F
   const said = messages[messages.length - 1]?.content;
   try {
     // Reminders, alarms, timers and lists are answered by Alfred himself, without the brain.
-    let agenda = null;
+    // So are calls and WhatsApp messages ("liga pra minha mãe"), which come back with a button.
+    let own = null;
     try {
-      agenda = getAgenda(config)?.handle(said);
+      own = getContacts(config)?.handle(said) || getAgenda(config)?.handle(said);
     } catch (err) {
-      log("[alfred] lembretes:", err?.message); // a bug there never costs the answer
+      log("[alfred] contatos/lembretes:", err?.message); // a bug there never costs the answer
     }
-    if (agenda) {
-      yield agenda;
+    if (own) {
+      yield* ownReply(own);
       return;
     }
-    // PC commands too.
+    // PC commands too. From the phone, sites and maps open on the phone (a button).
     if (config.pc !== "off") {
       pcControl ??= createPcControl();
-      const done = await pcControl.handle(said); // "como está o computador" takes half a second
+      const done = await pcControl.handle(said, { remote }); // "como está o computador" takes half a second
       if (done) {
-        yield done;
+        yield* ownReply(done);
         return;
       }
     }

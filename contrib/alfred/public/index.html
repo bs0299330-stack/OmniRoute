@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Alfred</title>
+    <meta name="theme-color" content="#05060b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -27,6 +31,9 @@
       </section>
       <main class="stage" aria-label="Alfred">
         <canvas id="orb" aria-hidden="true"></canvas>
+        <p class="tap-hint" id="tapHint" hidden>Toque no globo para falar</p>
+        <!-- ligar, WhatsApp e, pelo celular, sites e mapas: o Alfred nunca faz sozinho, mostra o botão -->
+        <div class="actions" id="actions" hidden></div>
         <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
       </main>
       <section class="news" id="news" aria-labelledby="newsHead" hidden>
@@ -61,6 +68,11 @@
         <label class="switch" for="wake">Ouvir sempre (responde ao ouvir “Alfred”) <input type="checkbox" id="wake" checked /></label>
         <label class="switch" for="clap">Ativar com duas palmas <input type="checkbox" id="clap" checked /></label>
         <label class="switch" for="clips" id="clipsField">Frases gravadas <input type="checkbox" id="clips" checked /></label>
+        <label class="switch" for="keepAwake" id="keepAwakeField" hidden>Manter a tela acesa (para ouvir “Alfred”) <input type="checkbox" id="keepAwake" /></label>
+        <div class="field" id="ntfyField" hidden>
+          <a class="ghost button-link" id="ntfyLink" href="#">Receber avisos no celular</a>
+          <p class="help" id="ntfyHelp"></p>
+        </div>
         <label class="field" for="clapSensitivity" id="clapSensitivityField" hidden>
           Sensibilidade das palmas
           <select id="clapSensitivity">
@@ -191,7 +203,12 @@
       let ttsAvailable = false;
       let tts = null; // { provider, voice, voices } from /api/health
       // "toggle:listen": the microphone is always on now; the older "toggle:wake" defaulted to off.
-      $("wake").checked = store.get("toggle:listen", true);
+      // No celular, o Chrome apita cada vez que o reconhecimento de voz recomeça e não ouve com a
+      // tela apagada: lá o padrão é tocar no globo para falar. “Ouvir sempre” e as palmas ficam no
+      // menu, para quem quiser (junto com “Manter a tela acesa”).
+      const isPhone =
+        /Android|iPhone|iPad/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && !matchMedia("(pointer: fine)").matches);
+      $("wake").checked = store.get("toggle:listen", !isPhone);
       for (const id of ["speak", "clips"]) {
         $(id).checked = store.get("toggle:" + id, $(id).checked);
       }
@@ -210,6 +227,7 @@
         const voice = indicatorFor(phase, { mic: !!listening || !!claps?.running, music: !!intro });
         $("voiceState").dataset.state = voice.state;
         $("voiceLabel").textContent = voice.label;
+        $("tapHint").hidden = !(isPhone && phase === "idle");
       }
       function settle() {
         // as palmas só valem com o Alfred parado (sem ouvir frase, sem falar, sem pensar)
@@ -446,6 +464,7 @@
         quietAlarm();
         busy = true;
         cueNext = viaVoice;
+        clearActions();
         stopListening();
         speaker.cancel();
         setStatus("");
@@ -502,6 +521,10 @@
               if (!data || data === "[DONE]") continue;
               const msg = JSON.parse(data);
               if (msg.error) throw Object.assign(new Error(msg.error), { retry: !full });
+              if (msg.action) {
+                showAction(msg.action); // “Ligar para sua mãe”, “Enviar no WhatsApp”, “Abrir o YouTube”
+                continue;
+              }
               if (msg.status) {
                 setPhase("thinking", msg.status); // “Pesquisando: …”, “Lendo g1.globo.com”
                 if (!full && !saidMoment) {
@@ -872,7 +895,7 @@
       }
 
       // "toggle:claps": as palmas agora vêm ligadas; a chave antiga podia guardar um "desligado" antigo.
-      $("clap").checked = store.get("toggle:claps", true);
+      $("clap").checked = store.get("toggle:claps", !isPhone);
       $("clapSensitivity").value = store.get("clapSensitivity", "media");
       $("clapSensitivityField").hidden = !$("clap").checked;
       $("clap").addEventListener("change", (e) => {
@@ -1044,13 +1067,20 @@
         render();
       });
 
-      fetch("api/health")
+      fetch("api/health", { headers: authHeaders() })
         .then((r) => r.json())
         .then((h) => {
           $("chipBrain").textContent = h.brain || "nenhum";
           if (h.brainFound === false) {
             if ($("speak").checked) speaker.sayAll("Estou sem cérebro para responder, mestre.");
             setStatus("Sem cérebro: rode o instalador de novo e escolha a opção 1 (IA no seu PC, grátis e sem chave), ou coloque uma chave grátis do Gemini (aistudio.google.com/apikey) em GEMINI_API_KEY no alfred.env, ou instale o Claude Code, ou coloque OPENAI_API_KEY. Rode windows\\diagnostico.cmd para testar.", true);
+          }
+          // avisos no celular pelo app ntfy: o botão abre o app já na inscrição certa
+          if (h.ntfy?.topic) {
+            const server = new URL(h.ntfy.server);
+            $("ntfyLink").href = `ntfy://${server.host}/${h.ntfy.topic}`;
+            $("ntfyHelp").textContent = `Instale o app grátis ntfy (Play Store) e toque no botão acima. Ou, no app, toque em + e digite: ${h.ntfy.topic}`;
+            $("ntfyField").hidden = false;
           }
           tts = h.tts || null;
           ttsAvailable = !!tts;
@@ -1081,6 +1111,52 @@
         show: (view) =>
           renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view),
       });
+
+      // ---------- Botões: ligar, WhatsApp e (pelo celular) abrir sites e mapas ----------
+      // O Alfred nunca liga nem envia sozinho: ele mostra o botão, e você toca.
+      const ACTION_URL = /^(?:tel:\+?\d{3,15}|https:\/\/)/;
+      let actionTimer = 0;
+      function clearActions() {
+        clearTimeout(actionTimer);
+        $("actions").replaceChildren();
+        $("actions").hidden = true;
+      }
+      function showAction(action) {
+        if (!action || !ACTION_URL.test(String(action.url ?? ""))) return;
+        const a = document.createElement("a");
+        a.className = "action-btn";
+        a.dataset.kind = action.kind || "open";
+        a.href = action.url;
+        if (action.url.startsWith("https:")) {
+          a.target = "_blank";
+          a.rel = "noopener";
+        }
+        a.textContent = ({ call: "📞 ", whatsapp: "💬 " }[action.kind] ?? "↗ ") + String(action.label ?? "Abrir");
+        a.addEventListener("click", () => setTimeout(clearActions, 800));
+        $("actions").replaceChildren(a);
+        $("actions").hidden = false;
+        actionTimer = setTimeout(clearActions, 120_000);
+      }
+
+      // ---------- Celular: tela acesa, aplicativo e avisos ----------
+      let wakeLock = null;
+      async function holdScreen() {
+        if (!$("keepAwake").checked || document.hidden || !("wakeLock" in navigator)) return;
+        try {
+          wakeLock = await navigator.wakeLock.request("screen");
+        } catch {}
+      }
+      $("keepAwakeField").hidden = !isPhone || !("wakeLock" in navigator);
+      $("keepAwake").checked = store.get("toggle:keepAwake", false);
+      $("keepAwake").addEventListener("change", (e) => {
+        store.set("toggle:keepAwake", e.target.checked);
+        if (e.target.checked) holdScreen();
+        else wakeLock?.release().catch(() => {});
+      });
+      document.addEventListener("visibilitychange", holdScreen); // o Android solta a tela ao sair do app
+      holdScreen();
+      // instalar como aplicativo (Chrome → “Adicionar à tela inicial”)
+      if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
 
       // ---------- Vigia: o Alfred volta a ouvir sozinho ----------
       // Depois que o notebook dorme, a tela bloqueia, a internet cai ou o fone é trocado, o

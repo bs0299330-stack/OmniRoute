@@ -277,6 +277,10 @@ async function ask(text) {
   let full = "";
   try {
     for await (const delta of streamReply(config, brain, messages, { signal: controller.signal, care })) {
+      if (delta.action) {
+        process.stdout.write(dim(`\n  ${delta.action.label}: ${delta.action.url}`)); // calls and WhatsApp: a link
+        continue;
+      }
       if (typeof delta !== "string") {
         thinking.label(statusLabel(delta.status)); // 🔎 pesquisando na internet…
         continue;

@@ -174,7 +174,7 @@ test("Windows installer downloads every Alfred file", async () => {
       return statSync(path).isDirectory() ? walk(path) : [relative(root, path).replaceAll("\\", "/")];
     });
   const expected = walk(root)
-    .filter((f) => !f.startsWith("claude/dist/") && !f.startsWith(".") && f !== "alfred.env" && !f.startsWith("memoria.json") && !f.startsWith("lembretes.json"))
+    .filter((f) => !f.startsWith("claude/dist/") && !f.startsWith(".") && f !== "alfred.env" && !f.startsWith("memoria.json") && !f.startsWith("lembretes.json") && !f.startsWith("contatos.json"))
     .sort();
   assert.deepEqual([...listed].sort(), expected);
 });

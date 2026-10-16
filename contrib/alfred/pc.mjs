@@ -358,8 +358,46 @@ export function createPcControl({ platform = process.platform, spawnImpl = spawn
     return null;
   }
 
+  /**
+   * Asked from the phone (or another device): sites, maps and searches open there, as a button
+   * the page shows; what only makes sense on this PC (programs, volume, print, shutdown) is not done.
+   */
+  function forDevice(cmd) {
+    const open = (text, label, url) => ({ text, action: { kind: "open", label, url } });
+    if (cmd.type === "map") {
+      return open(`Aqui está ${cmd.place} no mapa, mestre.`, `Abrir ${cmd.place} no mapa`, `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cmd.place)}`);
+    }
+    if (cmd.type === "route") {
+      return open(`Aqui está o caminho até ${cmd.place}, mestre.`, `Caminho até ${cmd.place}`, `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(cmd.place)}`);
+    }
+    if (cmd.type === "address") return open(`Aqui está ${cmd.host}, mestre.`, `Abrir ${cmd.host}`, `https://${cmd.host}/`);
+    if (cmd.type === "site") {
+      const [name, url] = SITES[cmd.key];
+      return open(`Aqui está ${name}, mestre.`, `Abrir ${name.replace(/^(?:o|a)\s+/, "")}`, url);
+    }
+    if (cmd.type === "search") {
+      const yt = cmd.where === "youtube";
+      const url = yt
+        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(cmd.query)}`
+        : `https://www.google.com/search?q=${encodeURIComponent(cmd.query)}`;
+      return open(`Aqui está a busca por ${cmd.query}, mestre.`, `Procurar no ${yt ? "YouTube" : "Google"}`, url);
+    }
+    if (cmd.type === "sysinfo") {
+      return systemInfo({ platform })
+        .then((info) => `No notebook: ${describeSystem(info)}`)
+        .catch(() => "Não consegui ver como está o notebook agora, mestre.");
+    }
+    return "Isso eu só faço no notebook, mestre. Pelo celular, abro sites, mapas e pesquisas.";
+  }
+
   return {
-    handle(text) {
+    /** `remote`: asked from another device (the phone), see forDevice. */
+    handle(text, { remote = false } = {}) {
+      if (remote) {
+        pending = null;
+        const cmd = parseCommand(text);
+        return cmd ? forDevice(cmd) : null;
+      }
       const waiting = pending && pending.until > now() ? pending : null;
       pending = null;
       if (waiting) {
