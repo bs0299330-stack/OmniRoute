@@ -1,0 +1,1257 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Alfred</title>
+    <meta name="theme-color" content="#05060b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400&family=Space+Grotesk:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="hud.css" />
+    <link rel="stylesheet" href="screen.css" />
+  </head>
+  <body class="voice-only">
+    <!-- Só voz: o globo no meio do céu, a voz (em cima à esquerda), o relógio (em cima à direita)
+         e as notícias do dia (embaixo à esquerda). O microfone fica sempre ligado esperando
+         “Alfred” ou duas palmas; o menu abre com a tecla M. -->
+    <div class="screen">
+      <p class="voice-state" id="voiceState" data-state="idle"><span class="dot" aria-hidden="true"></span><span id="voiceLabel">Voz ativa</span></p>
+      <section class="clock" aria-label="Hora local">
+        <p class="eyebrow">Hora local</p>
+        <p class="time"><span id="clockHM">--:--</span><span class="sec" id="clockSec">--</span></p>
+        <p class="day" id="clockDay"></p>
+        <p class="date" id="clockDate"></p>
+      </section>
+      <main class="stage" aria-label="Alfred">
+        <canvas id="orb" aria-hidden="true"></canvas>
+        <p class="tap-hint" id="tapHint" hidden>Toque no globo para falar</p>
+        <!-- ligar, WhatsApp e, pelo celular, sites e mapas: o Alfred nunca faz sozinho, mostra o botão -->
+        <div class="actions" id="actions" hidden></div>
+        <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
+      </main>
+      <section class="news" id="news" aria-labelledby="newsHead" hidden>
+        <h2 class="eyebrow" id="newsHead">Notícias do dia</h2>
+        <p class="news-tag" id="newsTag"></p>
+        <h3 class="news-title" id="newsTitle"></h3>
+        <p class="news-summary" id="newsSummary"></p>
+        <ol class="news-more" id="newsMore"></ol>
+      </section>
+    </div>
+    <p class="notice" id="status" role="alert" hidden></p>
+    <button class="menu-key" id="menuBtn" type="button" aria-label="Menu (tecla M)" aria-expanded="false" aria-controls="drawer">≡</button>
+
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="drawer" id="drawer" aria-label="Menu" hidden>
+      <div class="drawer-head">
+        <h2>ALFRED</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Fechar menu">✕</button>
+      </div>
+
+      <section>
+        <div class="row">
+          <h3>Conversa</h3>
+          <button class="ghost" id="reset" type="button">Nova conversa</button>
+        </div>
+        <div id="log" aria-live="polite"></div>
+      </section>
+
+      <section>
+        <h3>Opções</h3>
+        <label class="switch" for="speak">Falar as respostas <input type="checkbox" id="speak" checked /></label>
+        <label class="switch" for="wake">Ouvir sempre (responde ao ouvir “Alfred”) <input type="checkbox" id="wake" checked /></label>
+        <label class="switch" for="clap">Ativar com duas palmas <input type="checkbox" id="clap" checked /></label>
+        <label class="switch" for="clips" id="clipsField">Frases gravadas <input type="checkbox" id="clips" checked /></label>
+        <label class="switch" for="keepAwake" id="keepAwakeField" hidden>Manter a tela acesa (para ouvir “Alfred”) <input type="checkbox" id="keepAwake" /></label>
+        <div class="field" id="ntfyField" hidden>
+          <a class="ghost button-link" id="ntfyLink" href="#">Receber avisos no celular</a>
+          <p class="help" id="ntfyHelp"></p>
+        </div>
+        <label class="field" for="clapSensitivity" id="clapSensitivityField" hidden>
+          Sensibilidade das palmas
+          <select id="clapSensitivity">
+            <option value="baixa">Baixa (ambiente barulhento)</option>
+            <option value="media" selected>Média</option>
+            <option value="alta">Alta (palmas fracas ou longe do microfone)</option>
+          </select>
+        </label>
+        <div class="field" id="introField">
+          <label class="switch" for="introOn">Tocar música ao chamar <input type="checkbox" id="introOn" checked /></label>
+          <div class="row">
+            <span id="introName" class="help">Tema do Alfred (original)</span>
+            <button class="ghost" id="introPick" type="button">Escolher música…</button>
+            <button class="ghost" id="introRemove" type="button" hidden>Remover</button>
+          </div>
+          <input type="file" id="introFile" accept="audio/*" hidden />
+          <label class="field" for="introLength">
+            Tocar por
+            <select id="introLength">
+              <option value="8">8 segundos</option>
+              <option value="15" selected>15 segundos</option>
+              <option value="30">30 segundos</option>
+              <option value="0">Música inteira</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <details class="voice" id="voicePanel">
+          <summary>Ajustar a voz</summary>
+          <div class="voice-grid">
+            <label class="field" for="engine" id="engineField" hidden>
+              Motor
+              <select id="engine">
+                <option value="neural">Voz de IA</option>
+                <option value="browser">Voz do navegador</option>
+              </select>
+            </label>
+            <label class="field" for="aiVoice" id="aiVoiceField" hidden>
+              Voz de IA
+              <select id="aiVoice"></select>
+            </label>
+            <label class="field" for="voice" id="voiceField">
+              Voz
+              <select id="voice"></select>
+            </label>
+            <label class="field" for="rate" id="rateField">
+              <span>Velocidade <output id="rateOut"></output></span>
+              <input type="range" id="rate" min="0.7" max="1.4" step="0.05" />
+            </label>
+            <label class="field" for="pitch" id="pitchField">
+              <span>Tom <output id="pitchOut"></output></span>
+              <input type="range" id="pitch" min="0.5" max="1.3" step="0.05" />
+            </label>
+            <div class="field">
+              <span>&nbsp;</span>
+              <div class="row">
+                <button class="ghost" id="testVoice" type="button">Testar</button>
+                <button class="ghost" id="resetVoice" type="button">Padrão</button>
+              </div>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section>
+        <h3>Sistema</h3>
+        <dl class="facts">
+          <dt>Cérebro</dt>
+          <dd id="chipBrain">—</dd>
+          <dt>Voz</dt>
+          <dd id="chipVoice">—</dd>
+          <dt>Servidor</dt>
+          <dd id="online">online</dd>
+        </dl>
+        <p class="help">Diga “Alfred, …” ou bata duas palmas para chamar · a conversa segue sem repetir o nome · “tchau” encerra · clique no globo para conversar · segure Espaço para uma frase · Esc interrompe a fala · tecla M abre e fecha este menu</p>
+      </section>
+    </aside>
+
+    <script type="module">
+      import {
+        PHRASES,
+        VOICE_DEFAULTS,
+        VOICE_TEST_LINE,
+        createEarcons,
+        createSpeaker,
+        greetingFor,
+        isStopPhrase,
+        matchWakeWord,
+      } from "./voice.mjs";
+      import { STATE_LABELS, createOrb, playGothamTheme, setupDrawer } from "./hud.mjs";
+      import { indicatorFor, renderNews, startClock, startNews } from "./screen.mjs";
+      import { startClapListener } from "./clap.mjs";
+
+      const $ = (id) => document.getElementById(id);
+      const log = $("log");
+      const store = {
+        get(key, fallback) {
+          try {
+            const v = localStorage.getItem("alfred:" + key);
+            return v === null ? fallback : JSON.parse(v);
+          } catch {
+            return fallback;
+          }
+        },
+        set(key, value) {
+          try {
+            localStorage.setItem("alfred:" + key, JSON.stringify(value));
+          } catch {}
+        },
+      };
+
+      const MAX_SENT = 40; // mensagens da conversa enviadas ao cérebro (o servidor também corta)
+      let history = store.get("history", []).slice(-MAX_SENT);
+      let answering = null; // AbortController da resposta em andamento
+      let token = store.get("token", "");
+      // Link do celular (--tunel): a senha vem em #token=… e sai da barra de endereço em seguida.
+      const linkToken = location.hash.match(/(?:^#|&)token=([^&]+)/);
+      if (linkToken) {
+        token = decodeURIComponent(linkToken[1]);
+        store.set("token", token);
+        window.history.replaceState(null, "", location.pathname + location.search); // `history` aqui é a conversa
+      }
+      // "voice:v2": the first version stored a lowered pitch that made voices sound robotic.
+      let voiceSettings = { ...VOICE_DEFAULTS, ...store.get("voice:v2", {}) };
+      let busy = false;
+      let ttsAvailable = false;
+      let tts = null; // { provider, voice, voices } from /api/health
+      // "toggle:listen": the microphone is always on now; the older "toggle:wake" defaulted to off.
+      // No celular, o Chrome apita cada vez que o reconhecimento de voz recomeça e não ouve com a
+      // tela apagada: lá o padrão é tocar no globo para falar. “Ouvir sempre” e as palmas ficam no
+      // menu, para quem quiser (junto com “Manter a tela acesa”).
+      const isPhone =
+        /Android|iPhone|iPad/i.test(navigator.userAgent) || (matchMedia("(pointer: coarse)").matches && !matchMedia("(pointer: fine)").matches);
+      $("wake").checked = store.get("toggle:listen", !isPhone);
+      for (const id of ["speak", "clips"]) {
+        $(id).checked = store.get("toggle:" + id, $(id).checked);
+      }
+
+      // ---------- HUD ----------
+      const orb = createOrb($("orb"));
+      const menu = setupDrawer({ button: $("menuBtn"), drawer: $("drawer"), scrim: $("scrim"), restoreFocus: false });
+      startClock({ hm: $("clockHM"), sec: $("clockSec"), day: $("clockDay"), date: $("clockDate") });
+      // a chave “Frases gravadas” só aparece quando há alguma frase gravada em public/frases/
+      $("clipsField").hidden = !Object.values(PHRASES).some((p) => p.file);
+      function setPhase(phase, label) {
+        orb.setState(phase);
+        $("state").dataset.state = phase;
+        $("state").textContent = label || STATE_LABELS[phase];
+        // a bolinha do canto: “Voz ativa”, “Ouvindo”, “Pensando”, “Falando”…
+        const voice = indicatorFor(phase, { mic: !!listening || !!claps?.running, music: !!intro });
+        $("voiceState").dataset.state = voice.state;
+        $("voiceLabel").textContent = voice.label;
+        $("tapHint").hidden = !(isPhone && phase === "idle");
+      }
+      function settle() {
+        // as palmas só valem com o Alfred parado (sem ouvir frase, sem falar, sem pensar)
+        claps?.setMuted(busy || speaker.speaking || listening === "command" || voiceSession || !!intro);
+        if (intro) return setPhase("speaking", "♪ " + introTitle);
+        if (busy) return setPhase("thinking");
+        if (speaker.speaking) return setPhase("speaking");
+        if (listening === "command") return setPhase("listening", voiceSession ? "Ouvindo — pode falar" : "Ouvindo");
+        const hints = [];
+        if (listening === "wake") hints.push("diga “Alfred”");
+        if (claps?.running) hints.push("bata duas palmas");
+        setPhase("idle", hints.length ? `Em espera — ${hints.join(" ou ")}` : undefined);
+      }
+
+      let audioCtx = null;
+      function analyse(audio) {
+        // Only route through Web Audio when it is running; a suspended context would mute playback.
+        try {
+          audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state !== "running") return;
+          const source = audioCtx.createMediaElementSource(audio);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+          analyser.connect(audioCtx.destination);
+          orb.attachAnalyser(analyser);
+          const off = () => orb.detachAnalyser(analyser);
+          for (const ev of ["ended", "pause", "error"]) audio.addEventListener(ev, off);
+        } catch {}
+      }
+
+      const authHeaders = () => (token ? { authorization: "Bearer " + token } : {});
+      const earcons = createEarcons();
+      const speaker = createSpeaker({
+        getSettings: () => voiceSettings,
+        fetchNeural: async (text) => {
+          const res = await fetch("api/tts", {
+            method: "POST",
+            headers: { "content-type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ text, voice: voiceSettings.aiVoice || tts?.voice }),
+          });
+          if (!res.ok) throw new Error("tts " + res.status);
+          return res.blob();
+        },
+        // A voz de IA falhou (chave, plano ou créditos): sem aviso na tela, o resto da conversa sai
+        // na voz do navegador até o Alfred ser aberto de novo. O motivo aparece na janela preta.
+        onError: () => {
+          if (voiceSettings.engine !== "neural") return;
+          voiceSettings = { ...voiceSettings, engine: "browser" };
+          syncVoiceUi();
+        },
+        onWord: () => orb.pulse(),
+        onAudio: analyse,
+      });
+      function unlockAudio() {
+        speaker.unlock();
+        if (claps && !claps.running) claps.resume().then(settle);
+        try {
+          audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === "suspended") audioCtx.resume();
+        } catch {}
+        if (soundLocked) {
+          soundLocked = false;
+          clearStatus(SOUND_LOCKED);
+          greetOnce();
+        }
+      }
+
+      // Sem nenhum clique, o navegador pode bloquear o som (e as palmas). O atalho do Alfred abre
+      // o Edge já liberado; fora dele, um clique no globo libera.
+      const SOUND_LOCKED = "Clique no globo uma vez para ligar o som do Alfred.";
+      let soundLocked = false;
+      let greeted = false;
+      // Ao abrir: na primeira vez do dia, o "bom dia" completo (dia, hora, clima e notícias);
+      // nas outras, só "Alfred a postos".
+      async function greetOnce() {
+        if (greeted) return;
+        greeted = true;
+        const today = new Date().toLocaleDateString("pt-BR");
+        if (!$("speak").checked || store.get("briefing", "") === today) return phrase("inicio");
+        try {
+          const res = await fetch("api/briefing", { headers: authHeaders(), signal: AbortSignal.timeout(15000) });
+          const { text } = await res.json();
+          if (!res.ok || !text) throw new Error("briefing " + res.status);
+          // a conversa começou enquanto o bom dia era montado: fica para a próxima abertura
+          if (busy || voiceSession || speaker.speaking || intro || listening === "command") return;
+          store.set("briefing", today);
+          speaker.sayAll(text);
+        } catch {
+          phrase("inicio");
+        }
+      }
+      function checkSound() {
+        let running = true;
+        try {
+          audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+          running = audioCtx.state === "running";
+        } catch {}
+        if (running) return greetOnce();
+        soundLocked = true;
+        if ($("status").hidden) setStatus(SOUND_LOCKED, true); // não cobre um aviso mais importante
+      }
+
+      // Frases fixas: gravadas quando houver arquivo em public/frases/, senão na voz normal.
+      function phrase(name) {
+        const p = PHRASES[name];
+        if (!p || !$("speak").checked) return false;
+        if (p.file && $("clips").checked) speaker.playClip(p.file, p.text);
+        else speaker.sayAll(p.text);
+        return true;
+      }
+
+      // ---------- Interface ----------
+      // Só voz: avisos comuns não aparecem; só problemas (microfone, servidor, cérebro) ficam na
+      // tela, em uma linha discreta, até serem resolvidos.
+      function setStatus(text, warn = false) {
+        const show = !!(warn && text);
+        $("status").textContent = show ? text : "";
+        $("status").hidden = !show;
+      }
+      // Apaga o aviso só se ele ainda for aquele (outro problema pode ter aparecido depois).
+      function clearStatus(text) {
+        if ($("status").textContent === text) setStatus("");
+      }
+      function warnAloud(text) {
+        setStatus(text, true);
+        if ($("speak").checked) speaker.sayAll(text);
+      }
+
+      function addEntry(kind, text) {
+        const entry = document.createElement("div");
+        entry.className = "entry " + kind;
+        const who = document.createElement("span");
+        who.className = "who";
+        const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        who.textContent = (kind === "user" ? "VOCÊ" : kind === "alfred" ? "ALFRED" : "SISTEMA") + " · " + time;
+        const what = document.createElement("div");
+        what.className = "what";
+        setRichText(what, text);
+        entry.append(who, what);
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+        return what;
+      }
+
+      // Fontes clicáveis: [título](https://…) e endereços soltos viram links; todo o resto é texto.
+      // Os elementos são criados um a um (nunca innerHTML), e só links http/https são aceitos.
+      const LINKS = /\[([^\]\n]{1,200})\]\((https?:\/\/[^\s)]{1,500})\)|(https?:\/\/[^\s)<>\]]{1,500})/g;
+      function setRichText(el, text) {
+        el.textContent = "";
+        let last = 0;
+        for (const m of String(text).matchAll(LINKS)) {
+          el.append(text.slice(last, m.index));
+          const a = document.createElement("a");
+          a.href = m[2] || m[3];
+          a.textContent = m[1] || m[3];
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          el.append(a);
+          last = m.index + m[0].length;
+        }
+        el.append(text.slice(last));
+      }
+
+      function render() {
+        log.innerHTML = "";
+        if (history.length === 0) addEntry("alfred", "Boa noite. Em que posso ser útil?");
+        for (const m of history) addEntry(m.role === "user" ? "user" : "alfred", m.content);
+      }
+
+      function voiceLabel() {
+        if (voiceSettings.engine === "neural" && ttsAvailable) {
+          return "IA · " + (tts?.voices?.length ? voiceSettings.aiVoice || tts.voice : tts?.label || tts?.voice || "");
+        }
+        return "Navegador";
+      }
+
+      // ---------- Painel de voz ----------
+      function syncVoiceUi() {
+        $("engine").value = voiceSettings.engine;
+        $("rate").value = voiceSettings.rate;
+        $("pitch").value = voiceSettings.pitch;
+        $("rateOut").textContent = Number(voiceSettings.rate).toFixed(2) + "×";
+        $("pitchOut").textContent = Number(voiceSettings.pitch).toFixed(2);
+        const neural = voiceSettings.engine === "neural" && ttsAvailable;
+        $("voiceField").hidden = neural;
+        $("pitchField").hidden = neural;
+        $("rateField").hidden = neural;
+        $("aiVoiceField").hidden = !neural || !(tts?.voices?.length > 0);
+        $("voice").value = voiceSettings.voiceURI;
+        $("aiVoice").value = voiceSettings.aiVoice || tts?.voice || "";
+        $("chipVoice").textContent = voiceLabel();
+      }
+      function saveVoice(patch) {
+        voiceSettings = { ...voiceSettings, ...patch };
+        store.set("voice:v2", voiceSettings);
+        syncVoiceUi();
+      }
+      speaker.onVoices((voices) => {
+        const select = $("voice");
+        select.innerHTML = "";
+        select.add(new Option("Automática (melhor disponível)", ""));
+        for (const v of voices) select.add(new Option(`${v.name} (${v.lang})`, v.voiceURI));
+        if (voices.length === 0) select.add(new Option("Nenhuma voz em português neste navegador", ""));
+        syncVoiceUi();
+      });
+      $("engine").addEventListener("change", (e) => saveVoice({ engine: e.target.value }));
+      $("voice").addEventListener("change", (e) => saveVoice({ voiceURI: e.target.value }));
+      $("aiVoice").addEventListener("change", (e) => saveVoice({ aiVoice: e.target.value }));
+      $("rate").addEventListener("input", (e) => saveVoice({ rate: Number(e.target.value) }));
+      $("pitch").addEventListener("input", (e) => saveVoice({ pitch: Number(e.target.value) }));
+      $("testVoice").addEventListener("click", () => {
+        unlockAudio();
+        speaker.cancel();
+        speaker.sayAll(VOICE_TEST_LINE);
+      });
+      $("resetVoice").addEventListener("click", () => {
+        unlockAudio();
+        saveVoice({ ...VOICE_DEFAULTS, engine: ttsAvailable ? "neural" : "browser" });
+        speaker.cancel();
+        speaker.sayAll(VOICE_TEST_LINE);
+      });
+
+      speaker.onChange((speaking) => {
+        if (speaking) stopListening(); // não ouvir a própria voz
+        else scheduleListening();
+        settle();
+      });
+
+      // ---------- Conversa ----------
+      async function ask(text, { viaVoice = false } = {}) {
+        text = text.trim();
+        if (!text || busy) return;
+        quietAlarm();
+        busy = true;
+        cueNext = viaVoice;
+        clearActions();
+        stopListening();
+        speaker.cancel();
+        setStatus("");
+        settle();
+        const chunker = speaker.chunker();
+        // Esc (ou o clique no globo) corta a resposta inteira, inclusive o que ainda vai chegar.
+        const stop = new AbortController();
+        answering = stop;
+        const say = (pieces) => {
+          if ($("speak").checked && !stop.signal.aborted) for (const p of pieces) speaker.say(p);
+        };
+
+        history.push({ role: "user", content: text });
+        addEntry("user", text);
+        const entry = addEntry("alfred", "…");
+
+        let full = "";
+        let saidMoment = false;
+        // Uma resposta: falhas passageiras (servidor ou internet ainda ligando) vêm marcadas com
+        // `retry`, para tentar mais uma vez antes de reclamar.
+        const answer = async () => {
+          let res;
+          try {
+            res = await fetch("api/chat", {
+              method: "POST",
+              headers: { "content-type": "application/json", ...authHeaders() },
+              body: JSON.stringify({ messages: history.slice(-MAX_SENT) }),
+              signal: stop.signal,
+            });
+          } catch (err) {
+            if (stop.signal.aborted) throw err;
+            throw Object.assign(new Error("Não consegui falar com o servidor do Alfred. A janela preta está aberta?"), { retry: true });
+          }
+          if (res.status === 401) {
+            token = window.prompt("Token de acesso do Alfred:") || "";
+            store.set("token", token);
+            throw new Error("Token inválido. Tente de novo.");
+          }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw Object.assign(new Error(err.error || "Erro " + res.status), { retry: res.status >= 500 });
+          }
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const events = buf.split("\n\n");
+            buf = events.pop();
+            for (const ev of events) {
+              const data = ev.replace(/^data:\s*/, "");
+              if (!data || data === "[DONE]") continue;
+              const msg = JSON.parse(data);
+              if (msg.error) throw Object.assign(new Error(msg.error), { retry: !full });
+              if (msg.action) {
+                showAction(msg.action); // “Ligar para sua mãe”, “Enviar no WhatsApp”, “Abrir o YouTube”
+                continue;
+              }
+              if (msg.status) {
+                setPhase("thinking", msg.status); // “Pesquisando: …”, “Lendo g1.globo.com”
+                if (!full && !saidMoment) {
+                  saidMoment = true;
+                  phrase("momento"); // “Um momento, mestre. Vou verificar.”
+                }
+                continue;
+              }
+              full += msg.text;
+              entry.textContent = full;
+              log.scrollTop = log.scrollHeight;
+              say(chunker.push(msg.text));
+            }
+          }
+        };
+        try {
+          for (let attempt = 1; ; attempt++) {
+            try {
+              await answer();
+              break;
+            } catch (err) {
+              if (stop.signal.aborted || full || !err.retry || attempt >= 2) throw err;
+              console.warn("[alfred] tentando de novo:", err.message);
+              await new Promise((r) => setTimeout(r, 1500));
+            }
+          }
+          say(chunker.flush());
+          setRichText(entry, full);
+          history.push({ role: "assistant", content: full || "(sem resposta)" });
+          history = history.slice(-MAX_SENT);
+          store.set("history", history);
+        } catch (err) {
+          if (stop.signal.aborted) {
+            // interrompido: fica o que ele já tinha dito
+            setRichText(entry, full || "(interrompido)");
+            history.push({ role: "assistant", content: full || "(interrompido)" });
+            history = history.slice(-MAX_SENT);
+            store.set("history", history);
+            return;
+          }
+          history.pop();
+          entry.closest(".entry").remove();
+          addEntry("note", err.message);
+          // “Perdão, mestre. Não consegui responder agora.” e o motivo: na tela e, se curto, em voz
+          setStatus(err.message, true);
+          if (phrase("erro") && err.message.length <= 160) speaker.sayAll(err.message);
+        } finally {
+          if (answering === stop) answering = null;
+          busy = false;
+          settle();
+          scheduleListening();
+        }
+      }
+
+      // ---------- Microfone ----------
+      // O microfone fica sempre esperando “Alfred”. Chamado, ele ouve uma frase, responde e volta a
+      // ouvir sozinho, até você dizer "tchau" ou ficar ~1 minuto em silêncio. Enquanto Alfred fala,
+      // o microfone fica fechado para ele não ouvir a própria voz.
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const MIC_ERRORS = {
+        "not-allowed":
+          "O navegador bloqueou o microfone. Libere o microfone para o Alfred nas configurações do Edge, em Permissões do site, e abra o Alfred de novo.",
+        "service-not-allowed":
+          "Este navegador não liberou o reconhecimento de voz. Abra o Alfred no Edge ou no Chrome.",
+        "audio-capture":
+          "Nenhum microfone encontrado. Confira se ele está conectado e liberado em Configurações do Windows → Privacidade → Microfone; tento de novo em 30 segundos.",
+        network:
+          "O reconhecimento de voz não conseguiu conectar. Confira a internet; tento de novo em 30 segundos.",
+        "language-not-supported": "Este navegador não reconhece português. Abra o Alfred no Edge ou no Chrome.",
+      };
+      // Falhas passageiras (internet caiu, microfone desconectado por um momento): tenta de novo.
+      const TRANSIENT_MIC_ERRORS = new Set(["network", "audio-capture"]);
+      const MAX_SILENT_ROUNDS = 8; // ~1 minuto: o navegador encerra cada escuta após ~5–8 s de silêncio
+      let rec = null;
+      let listening = null; // "command" | "wake" | null
+      let scheduled = null;
+      let quickEnds = 0;
+      let voiceSession = false;
+      let silentRounds = 0;
+      let cueNext = false; // bipe só quando é a vez do usuário falar de novo, não a cada reinício
+      let retryTimer = null;
+      let retrying = false; // esperando os 30 s depois de um problema no microfone
+      let recActivity = 0; // quando o reconhecimento deu sinal de vida pela última vez
+
+      if (!Recognition) {
+        $("wake").disabled = true;
+        setStatus("Para conversar por voz, abra o Alfred no Edge ou no Chrome — este navegador não tem reconhecimento de voz.", true);
+      } else if (navigator.brave) {
+        setStatus("O Brave não faz reconhecimento de voz. Para conversar falando, abra o Alfred no Edge ou no Chrome.", true);
+      }
+
+      function startVoiceSession() {
+        if (!Recognition) {
+          setStatus("Para conversar por voz, abra o Alfred no Edge ou no Chrome.", true);
+          return;
+        }
+        voiceSession = true;
+        silentRounds = 0;
+        quickEnds = 0;
+        speaker.cancel();
+        earcons.listen();
+        listen("command");
+      }
+
+      function endVoiceSession(message, warn = false, silent = false) {
+        const was = voiceSession;
+        voiceSession = false;
+        stopListening();
+        if (warn) setStatus(message, true);
+        if (was && silent) phrase("pausa"); // “Estarei por aqui, mestre. É só chamar.”
+        scheduleListening(); // volta a esperar “Alfred”, se essa opção estiver ligada
+      }
+
+      // Mostra o problema e volta a ouvir sozinho daqui a 30 s (o microfone é sempre ligado).
+      function retryListening(message) {
+        setStatus(message, true);
+        clearTimeout(retryTimer);
+        retrying = true;
+        retryTimer = setTimeout(() => {
+          retrying = false;
+          clearStatus(message);
+          scheduleListening();
+        }, 30_000);
+      }
+
+      function stopListening() {
+        clearTimeout(scheduled);
+        scheduled = null;
+        if (!rec) return;
+        const r = rec;
+        rec = null;
+        listening = null;
+        r.onend = null;
+        r.onresult = null;
+        r.onerror = null;
+        try {
+          r.abort();
+        } catch {}
+        settle();
+      }
+
+      function listen(mode) {
+        if (!Recognition) return;
+        stopListening();
+        const r = new Recognition();
+        r.lang = "pt-BR";
+        r.interimResults = true;
+        r.continuous = mode === "wake";
+        r.maxAlternatives = 1;
+        const startedAt = Date.now();
+        let finalText = "";
+        let commandText = "";
+        let fired = false;
+        let heardSomething = false;
+        let fatal = null;
+
+        recActivity = Date.now();
+        r.onresult = (e) => {
+          heardSomething = true;
+          recActivity = Date.now();
+          let interim = "";
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            const res = e.results[i];
+            if (res.isFinal) finalText += res[0].transcript + " ";
+            else interim += res[0].transcript;
+          }
+          if (mode === "command") {
+            commandText = (finalText + interim).trim();
+            return;
+          }
+          // wake: só reage a frases finais que contêm “Alfred”; o resto é descartado.
+          if (fired) return;
+          const heard = matchWakeWord(finalText);
+          if (!heard) {
+            finalText = "";
+            return;
+          }
+          fired = true;
+          voiceSession = true; // chamou pelo nome: a conversa continua por voz
+          silentRounds = 0;
+          stopListening();
+          if (heard.command) {
+            ask(heard.command, { viaVoice: true });
+          } else {
+            cueNext = true; // bipe quando ele terminar de falar e for a sua vez
+            if (!phrase("chamada")) scheduleListening(); // “Pois não, mestre?”
+          }
+        };
+        r.onerror = (e) => {
+          if (MIC_ERRORS[e.error]) fatal = e.error;
+          // "no-speech" e "aborted" são normais: silêncio, ou nós mesmos fechamos o microfone.
+        };
+        r.onend = () => {
+          if (rec !== r) return;
+          rec = null;
+          listening = null;
+          settle();
+          if (fatal && TRANSIENT_MIC_ERRORS.has(fatal)) {
+            voiceSession = false;
+            retryListening(MIC_ERRORS[fatal]);
+            return;
+          }
+          if (fatal) {
+            // Só nesta abertura: ao abrir o Alfred de novo, ele tenta o microfone outra vez.
+            $("wake").checked = false;
+            endVoiceSession();
+            warnAloud(MIC_ERRORS[fatal]);
+            return;
+          }
+          if (mode === "command") {
+            const text = commandText.trim();
+            if (text) {
+              silentRounds = 0;
+              if (voiceSession && isStopPhrase(text)) {
+                endVoiceSession();
+                phrase("despedida"); // “Às suas ordens, mestre.”
+                return;
+              }
+              earcons.done();
+              ask(text, { viaVoice: true });
+              return;
+            }
+            if (voiceSession && ++silentRounds >= MAX_SILENT_ROUNDS) {
+              endVoiceSession("", false, true); // volta a esperar “Alfred”
+              return;
+            }
+          }
+          // Evita loop quente se o reconhecimento cair logo ao abrir (sem rede, sem permissão).
+          quickEnds = !heardSomething && Date.now() - startedAt < 1500 ? quickEnds + 1 : 0;
+          if (quickEnds >= 3) {
+            // O microfone fica sempre ligado: em vez de desistir, tenta de novo daqui a pouco.
+            quickEnds = 0;
+            voiceSession = false;
+            retryListening("O microfone parou de responder. Confira se ele está liberado; tento de novo em 30 segundos.");
+            return;
+          }
+          scheduleListening();
+        };
+
+        try {
+          r.start();
+        } catch {
+          retryListening("O microfone não abriu; tento de novo em 30 segundos.");
+          return;
+        }
+        rec = r;
+        listening = mode;
+        settle();
+      }
+
+      // Decide o que o microfone faz quando Alfred termina de falar (ou quando uma escuta acaba).
+      function scheduleListening() {
+        clearTimeout(scheduled);
+        scheduled = setTimeout(() => {
+          scheduled = null;
+          if (busy || speaker.speaking || rec || intro) return;
+          if (voiceSession) {
+            if (cueNext) earcons.listen();
+            cueNext = false;
+            return listen("command");
+          }
+          if ($("wake").checked) listen("wake");
+        }, 200);
+      }
+
+      function interrupt() {
+        answering?.abort();
+        stopIntro();
+        speaker.cancel();
+        settle();
+      }
+
+      // Clique no globo: libera o som, corta a música de abertura ou liga/desliga a conversa.
+      // Segurar o globo (~0,7 s) abre o menu: é o jeito no celular, que não tem a tecla M.
+      let pressTimer = null;
+      let longPressed = false;
+      $("orb").addEventListener("pointerdown", () => {
+        longPressed = false;
+        clearTimeout(pressTimer);
+        pressTimer = setTimeout(() => {
+          longPressed = true;
+          menu.open(true);
+        }, 700);
+      });
+      for (const ev of ["pointerup", "pointerleave", "pointercancel"]) {
+        $("orb").addEventListener(ev, () => clearTimeout(pressTimer));
+      }
+      $("orb").addEventListener("contextmenu", (e) => e.preventDefault());
+      $("orb").addEventListener("click", () => {
+        if (longPressed) return; // foi o toque longo do menu
+        const wasLocked = soundLocked;
+        unlockAudio();
+        if (wasLocked) return; // esse clique só ligou o som (e o “Alfred a postos”)
+        if (intro) return stopIntro();
+        if (voiceSession) {
+          interrupt(); // encerrar a conversa também corta a resposta em andamento
+          endVoiceSession();
+        } else startVoiceSession();
+      });
+      $("wake").addEventListener("change", (e) => {
+        store.set("toggle:listen", e.target.checked);
+        if (e.target.checked) scheduleListening();
+        else if (listening === "wake") stopListening();
+      });
+      $("clips").addEventListener("change", (e) => store.set("toggle:clips", e.target.checked));
+      $("speak").addEventListener("change", (e) => {
+        store.set("toggle:speak", e.target.checked);
+        if (!e.target.checked) speaker.cancel();
+      });
+
+      // ---------- Duas palmas ----------
+      // O microfone fica aberto só para o detector de palmas (no próprio PC, nada é enviado).
+      // Duas palmas com o Alfred parado: ele responde e começa a conversa por voz.
+      let claps = null;
+      let clapStarting = false;
+      const CLAP_ERRORS = {
+        unsupported: "Este navegador não consegue ouvir palmas. Use o Edge ou o Chrome.",
+        denied: "O navegador bloqueou o microfone para as palmas. Libere o microfone para o Alfred nas configurações do Edge, em Permissões do site.",
+        "no-mic": "Nenhum microfone encontrado para ouvir as palmas.",
+      };
+
+      async function onDoubleClap() {
+        if (voiceSession || busy || speaker.speaking || intro) return;
+        stopListening(); // sai do “Chamar por Alfred” já: nada de responder por cima da música
+        if ($("introOn").checked) {
+          const music = await idb("get");
+          if (music) await playIntro(music);
+          else await playTheme();
+          if (voiceSession || busy || speaker.speaking) return; // algo começou durante a música
+        }
+        voiceSession = true;
+        silentRounds = 0;
+        quickEnds = 0;
+        cueNext = true;
+        // “Bom dia / Boa tarde / Boa noite, mestre. Em que posso ser útil?” — ao terminar, ele ouve
+        if (!phrase(greetingFor())) listen("command");
+        settle();
+      }
+
+      async function enableClaps() {
+        if (claps || clapStarting) return;
+        clapStarting = true;
+        try {
+          claps = await startClapListener({
+            sensitivity: $("clapSensitivity").value,
+            onDoubleClap,
+          });
+          if (!$("clap").checked) {
+            claps.stop(); // desligaram enquanto o microfone abria
+            claps = null;
+            return;
+          }
+          if (!claps.running) checkSound(); // o navegador ainda não liberou o som: pede um clique
+        } catch (err) {
+          $("clap").checked = false; // só nesta abertura
+          setStatus(CLAP_ERRORS[err?.code] || "Não consegui ligar o detector de palmas.", true);
+        } finally {
+          clapStarting = false;
+          $("clapSensitivityField").hidden = !$("clap").checked;
+          settle();
+        }
+      }
+
+      function disableClaps() {
+        claps?.stop();
+        claps = null;
+        settle();
+      }
+
+      // "toggle:claps": as palmas agora vêm ligadas; a chave antiga podia guardar um "desligado" antigo.
+      $("clap").checked = store.get("toggle:claps", !isPhone);
+      $("clapSensitivity").value = store.get("clapSensitivity", "media");
+      $("clapSensitivityField").hidden = !$("clap").checked;
+      $("clap").addEventListener("change", (e) => {
+        store.set("toggle:claps", e.target.checked);
+        $("clapSensitivityField").hidden = !e.target.checked;
+        if (e.target.checked) {
+          unlockAudio();
+          enableClaps();
+        } else disableClaps();
+      });
+      // ---------- Música de abertura ----------
+      // O arquivo escolhido fica guardado no navegador deste PC (IndexedDB) e toca antes do
+      // “Pois não, mestre?” quando você bate duas palmas.
+      let intro = null; // { audio, timer, done }
+      let introTitle = "";
+
+      function idb(op, value) {
+        return new Promise((resolve) => {
+          let req;
+          try {
+            req = indexedDB.open("alfred", 1);
+          } catch {
+            return resolve(null);
+          }
+          req.onupgradeneeded = () => req.result.createObjectStore("files");
+          req.onerror = () => resolve(null);
+          req.onsuccess = () => {
+            const tx = req.result.transaction("files", op === "get" ? "readonly" : "readwrite");
+            const store = tx.objectStore("files");
+            const r = op === "get" ? store.get("intro") : op === "set" ? store.put(value, "intro") : store.delete("intro");
+            r.onsuccess = () => resolve(op === "get" ? r.result ?? null : true);
+            r.onerror = () => resolve(null);
+          };
+        });
+      }
+
+      function playIntro(music) {
+        return new Promise((resolve) => {
+          const url = URL.createObjectURL(music.blob);
+          const audio = new Audio(url);
+          introTitle = music.name.replace(/\.[^.]+$/, "");
+          const seconds = Number($("introLength").value);
+          let fading = null;
+          const done = () => {
+            if (!intro || intro.audio !== audio) return;
+            clearTimeout(intro.timer);
+            clearInterval(fading);
+            audio.pause();
+            URL.revokeObjectURL(url);
+            intro = null;
+            settle();
+            resolve();
+          };
+          const fadeOut = () => {
+            fading = setInterval(() => {
+              audio.volume = Math.max(0, audio.volume - 0.05);
+              if (audio.volume <= 0.01) done();
+            }, 100); // ~2 s
+          };
+          intro = { audio, done, timer: seconds > 0 ? setTimeout(fadeOut, seconds * 1000) : null };
+          audio.onended = done;
+          audio.onerror = done;
+          analyse(audio); // o globo pulsa com a música
+          settle();
+          audio.play().catch(done);
+        });
+      }
+
+      // Sem arquivo escolhido: o “Tema do Alfred”, composto na hora pelo navegador.
+      function playTheme() {
+        try {
+          audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+        } catch {
+          return Promise.resolve();
+        }
+        if (audioCtx.state !== "running") audioCtx.resume();
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.connect(audioCtx.destination);
+        orb.attachAnalyser(analyser);
+        const theme = playGothamTheme(audioCtx, analyser);
+        introTitle = "Tema do Alfred";
+        return new Promise((resolve) => {
+          const done = () => {
+            if (!intro || intro.theme !== theme) return;
+            orb.detachAnalyser(analyser);
+            intro = null;
+            settle();
+            resolve();
+          };
+          intro = { theme, done: () => (theme.stop(), done()) };
+          theme.done.then(done);
+          settle();
+        });
+      }
+
+      function stopIntro() {
+        intro?.done();
+      }
+
+      async function showIntro() {
+        const music = await idb("get");
+        $("introName").textContent = music ? music.name : "Tema do Alfred (original)";
+        $("introRemove").hidden = !music;
+      }
+      $("introPick").addEventListener("click", () => $("introFile").click());
+      $("introFile").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        const ok = await idb("set", { name: file.name, blob: file });
+        setStatus(ok ? `Música de abertura: ${file.name}` : "Não consegui guardar a música neste navegador.", !ok);
+        showIntro();
+      });
+      $("introRemove").addEventListener("click", async () => {
+        await idb("delete");
+        showIntro();
+      });
+      $("introOn").checked = store.get("toggle:introOn", true);
+      $("introOn").addEventListener("change", (e) => store.set("toggle:introOn", e.target.checked));
+      $("introLength").value = store.get("introLength", "15");
+      $("introLength").addEventListener("change", (e) => store.set("introLength", e.target.value));
+      showIntro();
+
+      $("clapSensitivity").addEventListener("change", (e) => {
+        store.set("clapSensitivity", e.target.value);
+        claps?.setSensitivity(e.target.value);
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") interrupt();
+        // M abre e fecha o menu (opções, voz, histórico), que não aparece na tela.
+        if ((e.key === "m" || e.key === "M") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
+          const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
+          if (!typing) {
+            e.preventDefault();
+            menu.open($("drawer").hidden);
+          }
+        }
+        // Espaço (fora do campo de texto): segure para falar uma frase só.
+        if (e.code === "Space" && document.activeElement === document.body && !e.repeat) {
+          e.preventDefault();
+          const wasLocked = soundLocked;
+          unlockAudio();
+          if (wasLocked) return; // essa tecla só ligou o som (e o “Alfred a postos”)
+          speaker.cancel();
+          if (listening !== "command") {
+            earcons.listen();
+            listen("command");
+          }
+        }
+      });
+      document.addEventListener("keyup", (e) => {
+        if (e.code === "Space" && listening === "command" && !voiceSession && document.activeElement === document.body) {
+          rec.stop();
+        }
+      });
+      // O primeiro toque em qualquer lugar libera o som; no globo, quem libera é o próprio clique
+      // dele (assim esse clique só liga o som e não corta o “Alfred a postos”).
+      document.addEventListener("pointerdown", function firstTouch(e) {
+        if (e.target === $("orb")) return;
+        document.removeEventListener("pointerdown", firstTouch);
+        unlockAudio();
+      });
+
+      $("reset").addEventListener("click", () => {
+        interrupt();
+        history = [];
+        store.set("history", history);
+        render();
+      });
+
+      fetch("api/health", { headers: authHeaders() })
+        .then((r) => r.json())
+        .then((h) => {
+          $("chipBrain").textContent = h.brain || "nenhum";
+          if (h.brainFound === false) {
+            if ($("speak").checked) speaker.sayAll("Estou sem cérebro para responder, mestre.");
+            setStatus("Sem cérebro: rode o instalador de novo e escolha a opção 1 (IA no seu PC, grátis e sem chave), ou coloque uma chave grátis do Gemini (aistudio.google.com/apikey) em GEMINI_API_KEY no alfred.env, ou instale o Claude Code, ou coloque OPENAI_API_KEY. Rode windows\\diagnostico.cmd para testar.", true);
+          }
+          // avisos no celular pelo app ntfy: o botão abre o app já na inscrição certa
+          if (h.ntfy?.topic) {
+            const server = new URL(h.ntfy.server);
+            $("ntfyLink").href = `ntfy://${server.host}/${h.ntfy.topic}`;
+            $("ntfyHelp").textContent = `Instale o app grátis ntfy (Play Store) e toque no botão acima. Ou, no app, toque em + e digite: ${h.ntfy.topic}`;
+            $("ntfyField").hidden = false;
+          }
+          tts = h.tts || null;
+          ttsAvailable = !!tts;
+          $("engineField").hidden = !ttsAvailable;
+          const aiSelect = $("aiVoice");
+          aiSelect.innerHTML = "";
+          for (const v of tts?.voices ?? []) aiSelect.add(new Option(v === tts.voice ? v + " (padrão)" : v, v));
+          // Uma voz de IA nova (ex.: a chave do ElevenLabs acabou de entrar) passa a ser a voz do Alfred.
+          if (ttsAvailable && (!store.get("voice:v2", null) || store.get("ttsProvider", "") !== tts.provider)) {
+            saveVoice({ engine: "neural" });
+          }
+          store.set("ttsProvider", tts?.provider || "");
+          if (!ttsAvailable && voiceSettings.engine === "neural") saveVoice({ engine: "browser" });
+          syncVoiceUi();
+        })
+        .catch(() => {
+          $("online").textContent = "offline";
+          setStatus("Servidor do Alfred offline.", true);
+        });
+
+      // Notícias do dia (Agência Brasil, ou g1): agora e de novo a cada 30 minutos.
+      startNews({
+        load: async () => {
+          const res = await fetch("api/news", { headers: authHeaders(), signal: AbortSignal.timeout(20000) });
+          if (!res.ok) throw new Error("news " + res.status);
+          return res.json();
+        },
+        show: (view) =>
+          renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view),
+      });
+
+      // ---------- Botões: ligar, WhatsApp e (pelo celular) abrir sites e mapas ----------
+      // O Alfred nunca liga nem envia sozinho: ele mostra o botão, e você toca.
+      const ACTION_URL = /^(?:tel:\+?\d{3,15}|https:\/\/)/;
+      let actionTimer = 0;
+      function clearActions() {
+        clearTimeout(actionTimer);
+        $("actions").replaceChildren();
+        $("actions").hidden = true;
+      }
+      function showAction(action) {
+        if (!action || !ACTION_URL.test(String(action.url ?? ""))) return;
+        const a = document.createElement("a");
+        a.className = "action-btn";
+        a.dataset.kind = action.kind || "open";
+        a.href = action.url;
+        if (action.url.startsWith("https:")) {
+          a.target = "_blank";
+          a.rel = "noopener";
+        }
+        a.textContent = ({ call: "📞 ", whatsapp: "💬 " }[action.kind] ?? "↗ ") + String(action.label ?? "Abrir");
+        a.addEventListener("click", () => setTimeout(clearActions, 800));
+        $("actions").replaceChildren(a);
+        $("actions").hidden = false;
+        actionTimer = setTimeout(clearActions, 120_000);
+      }
+
+      // ---------- Celular: tela acesa, aplicativo e avisos ----------
+      let wakeLock = null;
+      async function holdScreen() {
+        if (!$("keepAwake").checked || document.hidden || !("wakeLock" in navigator)) return;
+        try {
+          wakeLock = await navigator.wakeLock.request("screen");
+        } catch {}
+      }
+      $("keepAwakeField").hidden = !isPhone || !("wakeLock" in navigator);
+      $("keepAwake").checked = store.get("toggle:keepAwake", false);
+      $("keepAwake").addEventListener("change", (e) => {
+        store.set("toggle:keepAwake", e.target.checked);
+        if (e.target.checked) holdScreen();
+        else wakeLock?.release().catch(() => {});
+      });
+      document.addEventListener("visibilitychange", holdScreen); // o Android solta a tela ao sair do app
+      holdScreen();
+      // instalar como aplicativo (Chrome → “Adicionar à tela inicial”)
+      if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+      // ---------- Vigia: o Alfred volta a ouvir sozinho ----------
+      // Depois que o notebook dorme, a tela bloqueia, a internet cai ou o fone é trocado, o
+      // reconhecimento de voz às vezes para sem avisar. A cada 15 segundos, se ele devia estar
+      // esperando “Alfred” e não está, volta a ouvir; depois de um sono, recomeça tudo do zero.
+      let lastTick = Date.now();
+      function wakeUp(fresh = false) {
+        try {
+          if (audioCtx?.state === "suspended" && !soundLocked) audioCtx.resume();
+        } catch {}
+        if (busy || speaker.speaking || intro || listening === "command" || voiceSession) return;
+        // um reconhecimento “vivo” que não dá sinal há 5 minutos (ou depois de um sono) é trocado
+        if (rec && listening === "wake" && (fresh || Date.now() - recActivity > 5 * 60_000)) stopListening();
+        if (!rec && !scheduled && !retrying && $("wake").checked && Recognition) scheduleListening();
+      }
+      setInterval(() => {
+        const now = Date.now();
+        const slept = now - lastTick > 60_000; // os relógios da página pararam: o PC dormiu
+        lastTick = now;
+        if (slept && claps && $("clap").checked) {
+          disableClaps(); // o microfone das palmas também pode ter sido perdido
+          enableClaps();
+        }
+        wakeUp(slept);
+      }, 15_000);
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) wakeUp();
+      });
+      window.addEventListener("online", () => wakeUp(true));
+      // trocou o microfone ou o fone de ouvido: abre o reconhecimento (e as palmas) de novo
+      navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+        setTimeout(() => {
+          if (claps && $("clap").checked) {
+            disableClaps();
+            enableClaps();
+          }
+          wakeUp(true);
+        }, 1500);
+      });
+
+      // ---------- Avisos: lembretes, despertador, timer e alertas do tempo ----------
+      // O servidor guarda o que venceu; a página pergunta a cada 5 segundos e fala o que é novo
+      // (com um “dim-dom” antes), assim que o Alfred não estiver falando nem ouvindo uma frase.
+      let lastAviso = Number(store.get("aviso", 0)) || Date.now() - 120_000;
+      const avisosQueue = [];
+      let alarmAgain = null; // o despertador toca de novo (até 2 vezes) se ninguém mexer no Alfred
+      function sayAvisos() {
+        if (!avisosQueue.length || busy || speaker.speaking || intro) return;
+        // no meio de uma conversa por voz, o aviso entra; depois ele volta a ouvir sozinho
+        if (listening === "command") stopListening();
+        const a = avisosQueue.shift();
+        addEntry("note", a.text);
+        if (!$("speak").checked) return setStatus(a.text, true);
+        earcons.chime(a.kind === "alarm" ? 3 : 1);
+        setTimeout(() => speaker.sayAll(a.text), a.kind === "alarm" ? 2100 : 700);
+        if (a.kind === "alarm" && !a.again) alarmAgain = { ...a, again: true, left: 2, timer: setTimeout(ringAgain, 60_000) };
+      }
+      function ringAgain() {
+        if (!alarmAgain) return;
+        avisosQueue.push(alarmAgain);
+        sayAvisos();
+        alarmAgain = --alarmAgain.left > 0 ? { ...alarmAgain, timer: setTimeout(ringAgain, 60_000) } : null;
+      }
+      const quietAlarm = () => {
+        if (!alarmAgain) return;
+        clearTimeout(alarmAgain.timer);
+        alarmAgain = null;
+      };
+      for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, quietAlarm);
+      async function pollAvisos() {
+        try {
+          const res = await fetch("api/avisos?depois=" + lastAviso, { headers: authHeaders(), signal: AbortSignal.timeout(8000) });
+          if (res.ok) {
+            const { avisos = [] } = await res.json();
+            for (const a of avisos) {
+              if (!(a.id > lastAviso)) continue;
+              lastAviso = a.id;
+              avisosQueue.push(a);
+            }
+            store.set("aviso", lastAviso);
+          }
+        } catch {}
+        sayAvisos();
+      }
+      setInterval(pollAvisos, 5000);
+      speaker.onChange((speaking) => {
+        if (!speaking) setTimeout(sayAvisos, 400);
+      });
+
+      syncVoiceUi();
+      render();
+      settle();
+      if ($("wake").checked) scheduleListening();
+      if ($("clap").checked) enableClaps();
+      setTimeout(checkSound, 300); // “Alfred a postos, mestre. É só me chamar.”
+    </script>
+  </body>
+</html>
