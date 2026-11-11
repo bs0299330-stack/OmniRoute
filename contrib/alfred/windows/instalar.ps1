@@ -41,6 +41,7 @@ $Files = @(
   "public/icons/icon-maskable-512.png",
   "public/index.html",
   "public/manifest.webmanifest",
+  "public/saturn.mjs",
   "public/screen.css",
   "public/screen.mjs",
   "public/sw.js",

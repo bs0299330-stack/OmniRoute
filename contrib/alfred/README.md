@@ -259,11 +259,15 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
-### A tela: o globo no céu, o relógio e as notícias
+### A tela: o planeta no céu, o relógio e as notícias
 
 Num céu escuro e estrelado, a página mostra:
 
-- **no meio, o globo**: é com ele que você fala com o Alfred;
+- **no meio, um planeta no estilo de Saturno**: é com ele que você fala com o Alfred. Parado, ele
+  gira devagar e a poeira dos anéis passeia; **ouvindo**, os anéis ficam azulados e respiram;
+  **pensando**, um risco de luz corre pelos anéis; **falando**, ondas atravessam os anéis no ritmo
+  da voz e o planeta brilha (`public/saturn.mjs`). No menu, **Planeta do painel** volta para o
+  globo de partículas de antes;
 - **em cima, à esquerda, a voz**: "Voz ativa" quando ele espera ser chamado, "Ouvindo",
   "Pensando" e "Falando" (a bolinha azul pisca quando ele ouve), ou "Microfone desligado";
 - **em cima, à direita, o relógio**: hora, segundos, dia da semana e data;
@@ -280,8 +284,8 @@ reconhecimento de voz).
 | Continuar            | Depois de chamar, só fale: a conversa segue sem repetir o nome                         |
 | Encerrar             | Diga "tchau", "pode parar" ou "obrigado, Alfred"                                        |
 | Interromper a fala   | **Esc**                                                                                 |
-| Sem falar o nome     | Clique no globo (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
-| Opções e histórico   | Tecla **M** ou **segurar o globo** abre o menu (voz, palmas, música, histórico com os links das fontes) |
+| Sem falar o nome     | Clique no planeta (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
+| Opções e histórico   | Tecla **M** ou **segurar o planeta** abre o menu (voz, palmas, música, histórico com os links das fontes) |
 
 - **O microfone fica sempre ligado**, esperando o nome "Alfred" ou duas palmas. Ele não responde à
   TV nem a quem conversa perto do PC, só a quem chama pelo nome. Depois de chamado, ele responde,

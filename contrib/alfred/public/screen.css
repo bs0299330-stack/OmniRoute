@@ -157,6 +157,11 @@ body.voice-only {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Saturn's rings need more room than the globe */
+#orb.saturn {
+  width: calc(560 * var(--u));
+}
+
 /* ---------- under the globe: the phone's hint and the buttons (call, WhatsApp, open) ---------- */
 .tap-hint {
   position: absolute;
@@ -357,6 +362,9 @@ body.voice-only {
   }
   #orb {
     width: min(84vw, 50vh, 420px);
+  }
+  #orb.saturn {
+    width: min(96vw, 54vh, 480px);
   }
   .tap-hint,
   .actions {
