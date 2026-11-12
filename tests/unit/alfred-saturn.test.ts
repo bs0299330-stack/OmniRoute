@@ -32,9 +32,9 @@ test("the voice travels through the rings: nothing when silent, a moving wave wh
   assert.notEqual(ringWave(0.3, 1, 1), ringWave(0.3, 1.2, 1), "it moves with time");
 });
 
-test("the page draws Saturn by default and keeps the particle globe as an option", () => {
+test("Saturn stays as an option of the panel", () => {
   const html = readFileSync("contrib/alfred/public/index.html", "utf8");
-  assert.match(html, /store\.get\("visual", "saturno"\)/);
+  assert.match(html, /<option value="saturno">Saturno<\/option>/);
   assert.match(html, /<option value="globo">Globo de partículas<\/option>/);
   assert.match(readFileSync("contrib/alfred/server.mjs", "utf8"), /"\/saturn\.mjs"/);
 });

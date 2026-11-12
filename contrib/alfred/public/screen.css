@@ -162,6 +162,23 @@ body.voice-only {
   width: calc(560 * var(--u));
 }
 
+/* the abstract look (neural pathways): black and white; the contour lines are painted by neural.mjs */
+body.voice-only.mono {
+  --sky: #020203;
+  --void: #020203;
+  --accent: #f4f4f6;
+  background-image: none;
+}
+
+/* the neural pathways are wider than tall, with room for the points' names */
+#orb.neural {
+  width: calc(640 * var(--u));
+  aspect-ratio: 640 / 540;
+}
+#orb.neural ~ .actions {
+  top: calc(50% + 285 * var(--u));
+}
+
 /* ---------- under the globe: the phone's hint and the buttons (call, WhatsApp, open) ---------- */
 .tap-hint {
   position: absolute;
@@ -365,6 +382,9 @@ body.voice-only {
   }
   #orb.saturn {
     width: min(96vw, 54vh, 480px);
+  }
+  #orb.neural {
+    width: min(100%, 62vh, 520px);
   }
   .tap-hint,
   .actions {

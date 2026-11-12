@@ -164,6 +164,7 @@ const STATIC_FILES = {
   "/voice.mjs": ["voice.mjs", "text/javascript; charset=utf-8"],
   "/hud.mjs": ["hud.mjs", "text/javascript; charset=utf-8"],
   "/saturn.mjs": ["saturn.mjs", "text/javascript; charset=utf-8"],
+  "/neural.mjs": ["neural.mjs", "text/javascript; charset=utf-8"],
   "/clap.mjs": ["clap.mjs", "text/javascript; charset=utf-8"],
   "/hud.css": ["hud.css", "text/css; charset=utf-8"],
   "/screen.css": ["screen.css", "text/css; charset=utf-8"],

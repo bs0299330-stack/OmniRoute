@@ -31,7 +31,7 @@
       </section>
       <main class="stage" aria-label="Alfred">
         <canvas id="orb" aria-hidden="true"></canvas>
-        <p class="tap-hint" id="tapHint" hidden>Toque no planeta para falar</p>
+        <p class="tap-hint" id="tapHint" hidden>Toque no centro para falar</p>
         <!-- ligar, WhatsApp e, pelo celular, sites e mapas: o Alfred nunca faz sozinho, mostra o botão -->
         <div class="actions" id="actions" hidden></div>
         <p class="sr-only" id="state" data-state="idle" aria-live="polite">Em espera</p>
@@ -74,8 +74,9 @@
           <p class="help" id="ntfyHelp"></p>
         </div>
         <label class="field" for="visual">
-          Planeta do painel
+          Centro do painel
           <select id="visual">
+            <option value="neural">Vias neurais</option>
             <option value="saturno">Saturno</option>
             <option value="globo">Globo de partículas</option>
           </select>
@@ -156,7 +157,7 @@
           <dt>Servidor</dt>
           <dd id="online">online</dd>
         </dl>
-        <p class="help">Diga “Alfred, …” ou bata duas palmas para chamar · a conversa segue sem repetir o nome · “tchau” encerra · clique no planeta para conversar · segure Espaço para uma frase · Esc interrompe a fala · tecla M abre e fecha este menu</p>
+        <p class="help">Diga “Alfred, …” ou bata duas palmas para chamar · a conversa segue sem repetir o nome · “tchau” encerra · clique no centro da tela para conversar · toque num ponto aceso para ouvir sobre ele · segure Espaço para uma frase · Esc interrompe a fala · tecla M abre e fecha este menu</p>
       </section>
     </aside>
 
@@ -173,6 +174,7 @@
       } from "./voice.mjs";
       import { STATE_LABELS, createOrb, playGothamTheme, setupDrawer } from "./hud.mjs";
       import { createSaturn } from "./saturn.mjs";
+      import { NEWS_PROMPT, createNeural, topicLabel } from "./neural.mjs";
       import { indicatorFor, renderNews, startClock, startNews } from "./screen.mjs";
       import { startClapListener } from "./clap.mjs";
 
@@ -222,10 +224,16 @@
       }
 
       // ---------- HUD ----------
-      // O planeta do centro: Saturno (padrão) ou o globo de partículas de antes (menu → Planeta).
-      const visual = store.get("visual", "saturno") === "globo" ? "globo" : "saturno";
+      // O centro do painel: as vias neurais (padrão), com os pontos de assunto; no menu dá para
+      // voltar ao Saturno ou ao globo de partículas.
+      const visual = ["saturno", "globo"].includes(store.get("visual", "neural")) ? store.get("visual", "neural") : "neural";
       $("orb").classList.toggle("saturn", visual === "saturno");
-      const orb = visual === "globo" ? createOrb($("orb")) : createSaturn($("orb"));
+      $("orb").classList.toggle("neural", visual === "neural");
+      const orb = visual === "globo" ? createOrb($("orb")) : visual === "saturno" ? createSaturn($("orb")) : createNeural($("orb"));
+      // os assuntos da conversa guardada voltam como pontos acesos
+      for (const m of history.filter((h) => h.role === "user" && !h.content.startsWith(NEWS_PROMPT)).slice(-6)) {
+        orb.addTopic?.(topicLabel(m.content), m.content, { quiet: true });
+      }
       $("visual").value = visual;
       $("visual").addEventListener("change", (e) => {
         store.set("visual", e.target.value);
@@ -314,7 +322,7 @@
 
       // Sem nenhum clique, o navegador pode bloquear o som (e as palmas). O atalho do Alfred abre
       // o Edge já liberado; fora dele, um clique no globo libera.
-      const SOUND_LOCKED = "Clique no planeta uma vez para ligar o som do Alfred.";
+      const SOUND_LOCKED = "Clique no centro da tela uma vez para ligar o som do Alfred.";
       let soundLocked = false;
       let greeted = false;
       // Ao abrir: na primeira vez do dia, o "bom dia" completo (dia, hora, clima e notícias);
@@ -474,10 +482,13 @@
       });
 
       // ---------- Conversa ----------
-      async function ask(text, { viaVoice = false } = {}) {
+      async function ask(text, { viaVoice = false, node = 0 } = {}) {
         text = text.trim();
         if (!text || busy) return;
         quietAlarm();
+        // o assunto vira um ponto aceso nas vias neurais (ou acende o ponto que foi tocado)
+        // ("sim", "tchau" e outras respostas de uma palavra só não são assunto)
+        orb.setActive?.(node || (/\S\s+\S/.test(text) ? orb.addTopic?.(topicLabel(text), text) : 0));
         busy = true;
         cueNext = viaVoice;
         clearActions();
@@ -829,12 +840,19 @@
         $("orb").addEventListener(ev, () => clearTimeout(pressTimer));
       }
       $("orb").addEventListener("contextmenu", (e) => e.preventDefault());
-      $("orb").addEventListener("click", () => {
+      $("orb").addEventListener("click", (e) => {
         if (longPressed) return; // foi o toque longo do menu
         const wasLocked = soundLocked;
         unlockAudio();
         if (wasLocked) return; // esse clique só ligou o som (e o “Alfred a postos”)
         if (intro) return stopIntro();
+        // tocou num ponto de assunto (uma notícia, algo já conversado): o Alfred fala dele
+        const point = orb.pick?.(e.offsetX, e.offsetY);
+        if (point) {
+          const wait = busy ? 150 : 0;
+          if (busy) interrupt();
+          return setTimeout(() => ask(point.prompt, { node: point.id }), wait);
+        }
         if (voiceSession) {
           interrupt(); // encerrar a conversa também corta a resposta em andamento
           endVoiceSession();
@@ -1080,6 +1098,7 @@
         interrupt();
         history = [];
         store.set("history", history);
+        orb.clearTopics?.();
         render();
       });
 
@@ -1124,8 +1143,10 @@
           if (!res.ok) throw new Error("news " + res.status);
           return res.json();
         },
-        show: (view) =>
-          renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view),
+        show: (view) => {
+          renderNews({ panel: $("news"), tag: $("newsTag"), title: $("newsTitle"), summary: $("newsSummary"), more: $("newsMore") }, view);
+          orb.setNews?.([view.title, ...view.more.map((m) => m.title)]); // as notícias também viram pontos
+        },
       });
 
       // ---------- Botões: ligar, WhatsApp e (pelo celular) abrir sites e mapas ----------

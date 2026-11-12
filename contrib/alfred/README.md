@@ -259,15 +259,20 @@ Enquanto espera a resposta, o terminal mostra "pensando… Ns" (ou "🔎 Pesquis
 | "O OmniRoute respondeu com erro (401)"               | Crie uma chave no dashboard do OmniRoute e coloque em `OMNIROUTE_API_KEY`.                                                                           |
 | Microfone não funciona                               | Use Chrome/Edge, em `localhost` ou https, e permita o microfone no cadeado da barra de endereço.                                                     |
 
-### A tela: o planeta no céu, o relógio e as notícias
+### A tela: as vias neurais no céu, o relógio e as notícias
 
-Num céu escuro e estrelado, a página mostra:
+Num fundo escuro, a página mostra:
 
-- **no meio, um planeta no estilo de Saturno**: é com ele que você fala com o Alfred. Parado, ele
-  gira devagar e a poeira dos anéis passeia; **ouvindo**, os anéis ficam azulados e respiram;
-  **pensando**, um risco de luz corre pelos anéis; **falando**, ondas atravessam os anéis no ritmo
-  da voz e o planeta brilha (`public/saturn.mjs`). No menu, **Planeta do painel** volta para o
-  globo de partículas de antes;
+- **no meio, as vias neurais**, num desenho abstrato em preto e branco: um redemoinho de riscos de
+  luz em volta de um núcleo claro, sobre um fundo de linhas curvas (como um mapa de relevo). É com
+  ele que você fala com o Alfred. Em espera, os riscos escorrem devagar para o núcleo; **ouvindo**,
+  são puxados mais depressa; **pensando**, o redemoinho gira rápido; **falando**, o fluxo se
+  inverte e os riscos saem do núcleo no ritmo da voz (`public/neural.mjs`). Por cima ficam os
+  **pontos de assunto**, com nome: em branco, as notícias do dia; em dourado, o que vocês
+  conversaram (cada assunto novo acende um ponto novo, ligado ao anterior por um fio tracejado).
+  **Tocar num ponto** faz o Alfred falar daquele assunto. Cabem seis assuntos; o mais antigo dá
+  lugar ao novo, e "Nova conversa" limpa todos. No menu, **Centro do painel** troca esse desenho
+  pelo Saturno ou pelo globo de partículas (que voltam com o céu estrelado);
 - **em cima, à esquerda, a voz**: "Voz ativa" quando ele espera ser chamado, "Ouvindo",
   "Pensando" e "Falando" (a bolinha azul pisca quando ele ouve), ou "Microfone desligado";
 - **em cima, à direita, o relógio**: hora, segundos, dia da semana e data;
@@ -284,8 +289,8 @@ reconhecimento de voz).
 | Continuar            | Depois de chamar, só fale: a conversa segue sem repetir o nome                         |
 | Encerrar             | Diga "tchau", "pode parar" ou "obrigado, Alfred"                                        |
 | Interromper a fala   | **Esc**                                                                                 |
-| Sem falar o nome     | Clique no planeta (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
-| Opções e histórico   | Tecla **M** ou **segurar o planeta** abre o menu (voz, palmas, música, histórico com os links das fontes) |
+| Sem falar o nome     | Clique no centro da tela (liga e desliga a conversa) ou segure **Espaço**, fale e solte          |
+| Opções e histórico   | Tecla **M** ou **segurar o centro da tela** abre o menu (voz, palmas, música, histórico com os links das fontes) |
 
 - **O microfone fica sempre ligado**, esperando o nome "Alfred" ou duas palmas. Ele não responde à
   TV nem a quem conversa perto do PC, só a quem chama pelo nome. Depois de chamado, ele responde,
